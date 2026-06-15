@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+processed/
+.superpowers/
+_analysis/
+_sample_unzip/
+Images in/
+*.dng
+!samples/*.dng

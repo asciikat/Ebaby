@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl.exe -l -v)",
+      "Bash(wsl.exe -e bash -lc 'echo distro=$\\(. /etc/os-release; echo $PRETTY_NAME\\); which python3; python3 --version; for m in cv2 numpy rawpy PIL pyzbar; do python3 -c \"import $m; print\\(\\\\\"OK $m\\\\\"\\)\" 2>/dev/null || echo \"MISSING $m\"; done')",
+      "Bash(wsl.exe -e bash -lc ' *)",
+      "Bash(wsl.exe -e *)",
+      "Bash(pip --version)",
+      "Bash(ls -la *.py)",
+      "Bash(wc -l ebayflip_V2.py)",
+      "Bash(ls -la processed/)",
+      "Bash(ls -la Code/)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "PowerShell(git init -q)",
+      "PowerShell(git symbolic-ref HEAD refs/heads/rebuild-v3)",
+      "PowerShell(py -m venv .venv)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pip install --upgrade pip --quiet)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe --version)",
+      "PowerShell(\"--- branch ---\")",
+      "PowerShell(\"--- venv python ---\")"
+    ]
+  }
+}
