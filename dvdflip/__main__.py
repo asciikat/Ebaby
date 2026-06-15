@@ -23,6 +23,7 @@ def run(open_browser=True):
         return
     print("Processing photos from 'Images in' …")
     session = build_session(progress=print)
+    print(f"Done. Open the browser to review {len(session.groups)} DVD(s).")
     _serve(session, open_browser=open_browser)
 
 
