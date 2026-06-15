@@ -146,3 +146,14 @@ Debug dumps per image: `*_a4mask.png`, `*_flat.png`, `*_balanced.png`,
    Hough lines as a second method; take the better-scoring of the two).
 4. Re-add **barcode→title lookup** to enrich the listing files.
 5. Test on more DVDs (boxsets, slim cases, glossy glare, different lighting).
+
+## V3 rebuild (2026-06-15)
+
+`ebayflip_V2.py` is now **reference only**. The active tool is the `dvdflip/`
+package: classic CV does the pixels (ported from V2 — load, A4 flatten,
+white-balance, crop, pyzbar barcode) and a local vision model (Qwen2.5-VL via
+Ollama) makes every decision (side / orientation / title) and drafts the
+listing. A FastAPI review screen (`python -m dvdflip`, or `Run DVD Flip.bat`)
+lets you confirm/fix before `.jpg` export. Input is `.dng`, output `.jpg`.
+Spec: `docs/superpowers/specs/2026-06-15-dvd-flip-rebuild-design.md`.
+Plan: `docs/superpowers/plans/2026-06-15-dvd-flip-rebuild.md`.
