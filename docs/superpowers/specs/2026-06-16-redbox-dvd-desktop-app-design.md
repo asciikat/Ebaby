@@ -63,7 +63,7 @@ can be tested alone. Proven functions are lifted from V1 (`ebayflip_V1.txt`).
 | `config.py` | Settings dataclass, defaults, constants, config persistence (`~/.redboxflip.json`) | adapt V1 |
 | `models.py` | `Shot`, `DvdGroup`, `Settings`, `ProcessResult` dataclasses | new |
 | `detect.py` | Red-box ROI detection (the detection ladder) | new + V1 geometry |
-| `cutout.py` | Matte the case off the background: AI (`rembg`) → GrabCut(red-box) → geometric → manual; feather the edge | new + V1 AI/edge code |
+| `cutout.py` | Matte the case off the background via a pluggable engine (`rembg` **or** SAM box-prompt) → GrabCut(red-box) → geometric → manual; feather the edge | new + V1 AI/edge code |
 | `clean.py` | Erase residual red, auto-upright, composite on white square, colour tidy | port V1 |
 | `barcode.py` | Robust multi-decoder barcode scanning (the crux) | rebuild from V1 |
 | `titles.py` | Title resolution chain: online lookup → cache → manual; pluggable seam for offline guesser | new |
@@ -95,11 +95,16 @@ Each step records a confidence; low confidence flags the shot for review.
 precise mask hugging the real edges of the DVD case (back / front / inner), with a
 **slight feathered softness** so the composite looks natural. Intelligent ladder,
 auto-first, manual always available:
-1. **AI matte (primary):** crop to the red-box ROI, run the segmentation model
-   (`rembg`, default `isnet-general-use`) on *just that region* — constrained to the
-   ROI so surrounding paper/clutter can't confuse it → an alpha mask of the case.
-   Validate coverage (reject empty/tiny masks, as V1's `validate_ai_rgba` did) before
-   trusting it.
+1. **AI matte (primary) — selectable engine** (chosen in Settings, overridable
+   per-image in the editor):
+   - **rembg** (default; U2Net/`isnet-general-use` family): crop to the red-box ROI and
+     run rembg on *just that region* so surrounding paper/clutter can't confuse it →
+     alpha matte; or
+   - **SAM box-prompt** (MobileSAM — light, box-prompt capable): feed the red box itself
+     as a literal box-prompt so the model segments exactly what sits inside the outline
+     → alpha matte.
+   Either way, validate coverage (reject empty/tiny masks, as V1's `validate_ai_rgba`
+   did) before trusting the result, and fall through the ladder if it fails.
 2. **GrabCut seeded by the red box (fallback, no download):** use the red rectangle
    interior as the GrabCut init rect and the red-line band as probable-background →
    foreground mask. Instant, CPU-only.
@@ -201,8 +206,9 @@ per-DVD in the grid.
 All three requested flows live in a single Tkinter app:
 
 - **Main window:** input folder, output folder, **Run**, a progress log, and settings
-  (margin %, JPEG quality, max edge px, default region, colour-tidy on/off, title
-  lookup on/off, auto-open output folder, auto-open review grid).
+  (**cutout engine: rembg / SAM box-prompt**, margin %, JPEG quality, max edge px,
+  default region, colour-tidy on/off, title lookup on/off, auto-open output folder,
+  auto-open review grid).
 - **Fire-and-forget:** hit Run; on finish, show "_N DVDs done_" and auto-open the
   output folder. No clicks needed.
 - **Review grid** (`gui/grid.py`): thumbnails grouped by DVD, each tagged
@@ -211,8 +217,9 @@ All three requested flows live in a single Tkinter app:
 - **One-by-one:** a **Step through** button walks the editor over each shot
   (Save & Next), V1-style.
 - **Editor** (`gui/editor.py`, reuses V1's `CornerDialog` + zoom magnifier):
-  drag the 4 crop corners, rotate L/R/180, set the face, **edit the title** (renames
-  the group's files live), set region, and **re-scan / hand-type the barcode**.
+  drag the 4 crop corners, rotate L/R/180, set the face, **switch the cutout engine
+  (rembg / SAM / GrabCut) and re-run the matte**, **edit the title** (renames the
+  group's files live), set region, and **re-scan / hand-type the barcode**.
 
 Every automatic result is visible and overridable here — the "complete manual
 override" requirement.
@@ -224,13 +231,15 @@ override" requirement.
   app inside WSL.
 - **pip:** `opencv-contrib-python`, `numpy`, `pillow`, `pyzbar`, `zxing-cpp`,
   `rembg`, `onnxruntime`, `requests` (or stdlib `urllib`), `pytesseract` (optional).
+- **SAM engine (optional, for the SAM cutout route):** `mobile_sam` (or `segment-anything`)
+  + its weights (~40MB for MobileSAM). Only needed if the SAM engine is selected.
 - **apt:** `python3-tk`, `python3-pil.imagetk`, `libzbar0`, `tesseract-ocr` (optional,
   for the upright OCR fallback).
-- **One-time model download:** the `rembg` segmentation model (~170MB for
-  `isnet-general-use`) downloads on first use. Slow on this link but cached forever
-  after; the GrabCut fallback covers cutout until it lands.
-- A clear, actionable error at startup if a hard dependency is missing; if `rembg`
-  is unavailable the cutout ladder silently drops to GrabCut.
+- **One-time model downloads:** the `rembg` model (~170MB for `isnet-general-use`) and,
+  if used, the MobileSAM weights (~40MB) download on first use. Slow on this link but
+  cached forever after; GrabCut covers cutout until they land.
+- A clear, actionable error at startup if a hard dependency is missing; if the selected
+  AI engine is unavailable the cutout ladder silently drops to GrabCut.
 
 ## 11. Error handling
 
@@ -272,17 +281,13 @@ override" requirement.
 - Title comes from the barcode lookup and names all three files; manual fallback.
 - Default region: Region 4 / PAL (Australia), editable.
 - Ollama/Qwen left out of core; titles chain keeps a pluggable seam for it.
-- Cutout is an **AI matte** (red-box-constrained `rembg`) with a feathered soft edge,
-  composited on pure white, no re-warp (no distortion); GrabCut and geometric crop are
-  the no-download fallbacks, manual override always available.
+- Cutout is an **AI matte** with a feathered soft edge, composited on pure white, no
+  re-warp (no distortion). The AI engine is **user-selectable: rembg (default) or SAM
+  box-prompt** (both guided by the red box); GrabCut and geometric crop are the
+  no-download fallbacks, manual override always available.
 
 ## 15. Open items to confirm during planning
 
-- **Cutout AI engine:** default `rembg` (`isnet-general-use`) constrained to the
-  red-box ROI, with GrabCut + geometric fallbacks. Alternative considered:
-  **SAM / MobileSAM with the red box as a literal box-prompt** (very precise, the red
-  outline becomes the prompt) — heavier setup. Default is `rembg` unless the user
-  prefers the SAM box-prompt route.
 - Title-lookup source: default to upcitemdb trial + manual fallback, or a specific
   database the user prefers?
 - Output as per-DVD subfolders (proposed) vs flat folder with title in the filename.
