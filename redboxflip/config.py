@@ -23,3 +23,9 @@ def save_settings(settings: Settings) -> None:
                                  encoding="utf-8")
     except Exception:
         pass
+
+
+def load_cache_for_batch() -> dict:
+    """Thin wrapper so the pipeline doesn't import titles at module load."""
+    from .titles import load_cache
+    return load_cache()
