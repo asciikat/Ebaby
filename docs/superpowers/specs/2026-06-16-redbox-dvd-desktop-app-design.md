@@ -62,7 +62,8 @@ can be tested alone. Proven functions are lifted from V1 (`ebayflip_V1.txt`).
 | `__main__.py` | Entry point; launch GUI (default) or headless CLI (`--input/--output`) | new |
 | `config.py` | Settings dataclass, defaults, constants, config persistence (`~/.redboxflip.json`) | adapt V1 |
 | `models.py` | `Shot`, `DvdGroup`, `Settings`, `ProcessResult` dataclasses | new |
-| `detect.py` | Red-box ROI detection → tight case crop inside ROI (the fallback ladder) | new + V1 geometry |
+| `detect.py` | Red-box ROI detection (the detection ladder) | new + V1 geometry |
+| `cutout.py` | Matte the case off the background: AI (`rembg`) → GrabCut(red-box) → geometric → manual; feather the edge | new + V1 AI/edge code |
 | `clean.py` | Erase residual red, auto-upright, composite on white square, colour tidy | port V1 |
 | `barcode.py` | Robust multi-decoder barcode scanning (the crux) | rebuild from V1 |
 | `titles.py` | Title resolution chain: online lookup → cache → manual; pluggable seam for offline guesser | new |
@@ -90,29 +91,41 @@ For each input JPG, in order:
 4. Final fallback: use the whole image as the ROI.
 Each step records a confidence; low confidence flags the shot for review.
 
-**Stage C — Tight case crop inside the ROI.** Ladder:
-1. Within the ROI, mask everything that is **not pure-white and not red** →
-   bounding box of the largest component = the plastic case. Crop to it.
-2. For the **inside/open** shot, expect a wider aspect; don't force portrait.
-3. Fallback: ROI interior inset by the red-line thickness.
-Manual corner-drag override always available in the editor.
+**Stage C — Cut the case out (matte).** The red box is the *guide*; the goal is a
+precise mask hugging the real edges of the DVD case (back / front / inner), with a
+**slight feathered softness** so the composite looks natural. Intelligent ladder,
+auto-first, manual always available:
+1. **AI matte (primary):** crop to the red-box ROI, run the segmentation model
+   (`rembg`, default `isnet-general-use`) on *just that region* — constrained to the
+   ROI so surrounding paper/clutter can't confuse it → an alpha mask of the case.
+   Validate coverage (reject empty/tiny masks, as V1's `validate_ai_rgba` did) before
+   trusting it.
+2. **GrabCut seeded by the red box (fallback, no download):** use the red rectangle
+   interior as the GrabCut init rect and the red-line band as probable-background →
+   foreground mask. Instant, CPU-only.
+3. **Geometric rectangle (final auto fallback):** bounding box of non-white/non-red
+   content inside the ROI; the inside/open shot is allowed a wider aspect.
+4. **Manual:** corner-drag / mask fix in the editor.
 
-**Stage D — Erase residual red.** Replace near-red pixels at the crop border with
-white (mask + inpaint/feather), so no red marker survives at the edges.
+The mask edge is **feathered a few px** (the requested softness). Any near-red pixels
+that survive are erased to white. **No perspective re-warp is ever applied** — the
+scan is already flat, so we only mask, rotate in 90° steps, and place at true pixel
+scale ⇒ **no distortion**.
 
-**Stage E — Auto-upright.** Ladder:
+**Stage D — Auto-upright.** Ladder:
 1. **Back shots:** the rotation at which the barcode decodes is the upright
    reference (we already try all rotations to scan — reuse that result).
 2. Tesseract OCR text-orientation vote (if `tesseract` is installed).
 3. Aspect heuristic (front/back → portrait; inside → landscape).
 4. Manual rotate L / R / 180 buttons in the editor.
 
-**Stage F — Compose.** Drop the upright crop, centered, on a **pure-white 1:1
-square** with a configurable margin. Optional gentle colour tidy (white-balance +
-mild contrast), default on but conservative. Resize to a max edge, save high-quality
-JPG.
+**Stage E — Compose.** Drop the upright, feathered cutout centered on a **pure-white
+1:1 square** with a configurable margin, composited through its alpha so the white
+shows cleanly around the soft edge and **no red outline is visible**. Optional gentle
+colour tidy (white-balance + mild contrast), default on but conservative. Resize to a
+max edge, save high-quality JPG.
 
-**Stage G — Barcode (back shots only).** See §6.
+**Stage F — Barcode (back shots only).** See §6.
 
 ## 6. Barcode subsystem — the crux
 
@@ -210,10 +223,14 @@ override" requirement.
   Windows 11 — no X server setup). `Run DVD Flip.bat` is updated to launch the new
   app inside WSL.
 - **pip:** `opencv-contrib-python`, `numpy`, `pillow`, `pyzbar`, `zxing-cpp`,
-  `requests` (or stdlib `urllib`), `pytesseract` (optional).
+  `rembg`, `onnxruntime`, `requests` (or stdlib `urllib`), `pytesseract` (optional).
 - **apt:** `python3-tk`, `python3-pil.imagetk`, `libzbar0`, `tesseract-ocr` (optional,
   for the upright OCR fallback).
-- A clear, actionable error at startup if a hard dependency is missing.
+- **One-time model download:** the `rembg` segmentation model (~170MB for
+  `isnet-general-use`) downloads on first use. Slow on this link but cached forever
+  after; the GrabCut fallback covers cutout until it lands.
+- A clear, actionable error at startup if a hard dependency is missing; if `rembg`
+  is unavailable the cutout ladder silently drops to GrabCut.
 
 ## 11. Error handling
 
@@ -238,7 +255,9 @@ override" requirement.
 ## 13. Non-goals (YAGNI)
 
 - No web UI / FastAPI / browser anything.
-- No local LLM or AI background-removal in the core (red-box ROI removes the need).
+- No local **LLM for titles** in the core (the Ollama/Qwen seam in §7 stays optional
+  and off by default). _AI image segmentation for the cutout (§5 Stage C) **is** in
+  the core — that's a light vision model, not the LLM that caused grief._
 - No automatic region detection (user default + manual override instead).
 - No OCR of the handwritten template labels.
 - No multi-user, no cloud, no packaging beyond the WSL launcher.
@@ -253,9 +272,17 @@ override" requirement.
 - Title comes from the barcode lookup and names all three files; manual fallback.
 - Default region: Region 4 / PAL (Australia), editable.
 - Ollama/Qwen left out of core; titles chain keeps a pluggable seam for it.
+- Cutout is an **AI matte** (red-box-constrained `rembg`) with a feathered soft edge,
+  composited on pure white, no re-warp (no distortion); GrabCut and geometric crop are
+  the no-download fallbacks, manual override always available.
 
 ## 15. Open items to confirm during planning
 
+- **Cutout AI engine:** default `rembg` (`isnet-general-use`) constrained to the
+  red-box ROI, with GrabCut + geometric fallbacks. Alternative considered:
+  **SAM / MobileSAM with the red box as a literal box-prompt** (very precise, the red
+  outline becomes the prompt) — heavier setup. Default is `rembg` unless the user
+  prefers the SAM box-prompt route.
 - Title-lookup source: default to upcitemdb trial + manual fallback, or a specific
   database the user prefers?
 - Output as per-DVD subfolders (proposed) vs flat folder with title in the filename.
