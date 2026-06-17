@@ -33,8 +33,24 @@ def run_headless(input_dir, output_dir, engine=None, colour_tidy=None):
     return 0
 
 
+def startup_report() -> str:
+    from .barcode import available_decoders
+    decoders = available_decoders()
+    try:
+        import rembg  # noqa: F401
+        rembg_ok = "available"
+    except Exception:
+        rembg_ok = "MISSING (cutout falls back to GrabCut)"
+    lines = [
+        f"Barcode decoders: {', '.join(decoders) if decoders else 'NONE — install pyzbar/zxing-cpp + libzbar0'}",
+        f"Cutout: rembg {rembg_ok}; GrabCut/geometric always available",
+    ]
+    return "\n".join(lines)
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    print(startup_report(), file=sys.stderr)
     if args.input or args.output:
         if not (args.input and args.output):
             print("Both --input and --output are required for headless mode.",
