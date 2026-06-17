@@ -68,13 +68,9 @@ class ShotEditor:
                      state="readonly", width=12).grid(row=1, column=1, columnspan=2,
                                                        sticky="w", padx=4)
         ttk.Label(opts, text="Title:").grid(row=2, column=0, sticky="w")
-        self.title_var = tk.StringVar(value=shot.title or "")
-        ttk.Entry(opts, textvariable=self.title_var, width=36).grid(
+        self.title_var = tk.StringVar(value=shot.title or shot.ocr_title or "")
+        ttk.Entry(opts, textvariable=self.title_var, width=40).grid(
             row=2, column=1, columnspan=4, sticky="w", padx=4)
-        ttk.Label(opts, text="Barcode:").grid(row=3, column=0, sticky="w")
-        self.barcode_var = tk.StringVar(value=shot.barcode or "")
-        ttk.Entry(opts, textvariable=self.barcode_var, width=20).grid(
-            row=3, column=1, columnspan=2, sticky="w", padx=4)
 
         rot = ttk.Frame(self.top); rot.pack(side="bottom", pady=4)
         ttk.Label(rot, text="Rotate:").pack(side="left")
@@ -177,7 +173,6 @@ class ShotEditor:
             "face": Face(self.face_var.get()),
             "engine": self.engine_var.get(),
             "title": self.title_var.get().strip(),
-            "barcode": self.barcode_var.get().strip() or None,
             "extra_rotation": self.extra_rotation,
         }
         self.top.destroy()

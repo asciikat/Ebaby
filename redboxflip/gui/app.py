@@ -86,7 +86,7 @@ class App:
         self.colour_var = tk.BooleanVar(value=self.settings.colour_tidy)
         ttk.Checkbutton(sf, text="Colour tidy", variable=self.colour_var).grid(row=2, column=0, sticky="w", padx=6)
         self.lookup_var = tk.BooleanVar(value=self.settings.title_lookup)
-        ttk.Checkbutton(sf, text="Title lookup", variable=self.lookup_var).grid(row=2, column=1, sticky="w")
+        ttk.Checkbutton(sf, text="OCR title", variable=self.lookup_var).grid(row=2, column=1, sticky="w")
 
         # run
         rb = ttk.Frame(root); rb.pack(fill="x", padx=10, pady=8)
@@ -186,7 +186,6 @@ class App:
         shot.output_path = str(out)
         shot.face = new_res.face
         shot.title = title
-        shot.barcode = edits.get("barcode", shot.barcode)
         shot.cutout_method = new_res.cutout_method
 
     def _close(self):

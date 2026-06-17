@@ -5,12 +5,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import clean, cutout, detect, naming, titles
-from .barcode import decode as decode_barcode
-from .config import load_cache_for_batch
+from . import clean, cutout, detect, naming, ocr, titles
 from .imaging import load_image_bgr, resize_max_pil, save_jpeg
 from .models import Face, FACE_ORDER, ShotResult, DvdGroup
-from .titles import resolve_title
 
 SUPPORTED = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
@@ -54,11 +51,7 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
                     x1 = min(warped.shape[1], x1); y1 = min(warped.shape[0], y1)
                     cropped_bgr = warped[y0:y1, x0:x1].copy()
 
-                    barcode_digits = None
-                    if face == Face.BACK:
-                        barcode_digits, _, _ = decode_barcode(cropped_bgr)
-                        if barcode_digits is None:
-                            barcode_digits, _, _ = decode_barcode(bgr)
+                    ocr_title = ocr.extract_title(cropped_bgr) if face == Face.FRONT else None
 
                     rgb = cv2.cvtColor(cropped_bgr, cv2.COLOR_BGR2RGB)
                     rgba = np.dstack([rgb, np.full(rgb.shape[:2], 255, np.uint8)])
@@ -75,7 +68,7 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
                     composed = clean.compose_on_white_square(rgba, settings.margin_pct)
                     composed = resize_max_pil(composed, settings.max_edge_px)
                     return composed, ShotResult(
-                        input_path=str(path), face=face, barcode=barcode_digits,
+                        input_path=str(path), face=face, ocr_title=ocr_title,
                         detect_method="a4-warp", detect_conf=1.0,
                         cutout_method="a4-crop", rotation=rot, status="ok",
                         elapsed_ms=int((time.perf_counter() - t0) * 1000),
@@ -92,9 +85,7 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
         rembg_model=settings.rembg_model, sam_checkpoint=settings.sam_checkpoint)
     rgba = clean.erase_red_to_white(rgba)
 
-    barcode_digits = None
-    if face == Face.BACK:
-        barcode_digits, _m, _r = decode_barcode(bgr)
+    ocr_title = ocr.extract_title(bgr) if face == Face.FRONT else None
 
     rgba, rot = clean.auto_upright(rgba, face)
     rot = (rot + extra_rotation) % 360
@@ -108,7 +99,7 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
     composed = clean.compose_on_white_square(rgba, settings.margin_pct)
     composed = resize_max_pil(composed, settings.max_edge_px)
     return composed, ShotResult(
-        input_path=str(path), face=face, barcode=barcode_digits,
+        input_path=str(path), face=face, ocr_title=ocr_title,
         detect_method=det_method, detect_conf=round(float(conf), 3),
         cutout_method=cut_method, rotation=rot, status="ok",
         elapsed_ms=int((time.perf_counter() - t0) * 1000),
@@ -127,7 +118,6 @@ def run_batch(settings, progress_cb=None):
     paths = gather_inputs(settings.input_dir)
     grouped = assign_groups(paths)
     run_dir = _make_run_dir(settings.output_dir)
-    cache = load_cache_for_batch()
 
     total = len(paths)
     done = 0
@@ -147,16 +137,13 @@ def run_batch(settings, progress_cb=None):
             if progress_cb:
                 progress_cb(done, total, path.name)
 
-        back = composed.get(Face.BACK)
-        barcode = back[1].barcode if back else None
-        title, _src = resolve_title(barcode, do_lookup=settings.title_lookup,
-                                    cache=cache)
-        if not title:
-            title = barcode or f"Untitled DVD {gi}"
+        front = composed.get(Face.FRONT)
+        raw_title = front[1].ocr_title if front and front[1] else None
+        title = titles.clean_title(raw_title) if raw_title else f"Untitled DVD {gi}"
 
         dvd_dir = run_dir / naming.safe_stem(title)
         dvd_dir.mkdir(parents=True, exist_ok=True)
-        group = DvdGroup(index=gi, barcode=barcode, title=title,
+        group = DvdGroup(index=gi, barcode=None, title=title,
                          region=settings.default_region, shots=[])
         for face, (pil, res) in composed.items():
             res.title, res.region = title, group.region
@@ -168,7 +155,6 @@ def run_batch(settings, progress_cb=None):
         group.shots.sort(key=lambda s: FACE_ORDER.index(s.face))
         dvd_groups.append(group)
 
-    titles.save_cache(cache)
     naming.write_listing(run_dir, dvd_groups)
     naming.write_run_log(run_dir, dvd_groups, settings.to_dict())
     return run_dir, dvd_groups

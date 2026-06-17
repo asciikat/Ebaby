@@ -52,9 +52,8 @@ def test_run_batch_end_to_end(tmp_path, monkeypatch):
         cv2.imwrite(str(in_dir / name), img)
     out_dir = tmp_path / "out"
 
-    monkeypatch.setattr(pipeline, "decode_barcode", lambda bgr: ("123", "test", 0))
-    monkeypatch.setattr(pipeline, "resolve_title",
-                        lambda bc, **k: ("Test DVD", "lookup"))
+    # Stub OCR so the front cover returns a known title
+    monkeypatch.setattr(pipeline.ocr, "extract_title", lambda img: "Test DVD")
 
     s = Settings(input_dir=str(in_dir), output_dir=str(out_dir),
                  cutout_engine="geometric", colour_tidy=False, title_lookup=False,

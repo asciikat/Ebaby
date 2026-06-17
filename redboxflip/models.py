@@ -54,6 +54,7 @@ class ShotResult:
     barcode: Optional[str] = None
     title: Optional[str] = None
     region: Optional[str] = None
+    ocr_title: Optional[str] = None
     detect_method: str = ""
     detect_conf: float = 0.0
     cutout_method: str = ""
