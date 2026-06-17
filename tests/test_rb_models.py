@@ -13,7 +13,7 @@ def test_face_file_labels():
 
 def test_settings_defaults():
     s = Settings()
-    assert s.cutout_engine == "rembg"
+    assert s.cutout_engine == "geometric"
     assert s.default_region == "Region 4 (PAL, Australia)"
     assert s.colour_tidy is True
     assert s.title_lookup is True

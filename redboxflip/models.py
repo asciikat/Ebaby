@@ -24,7 +24,7 @@ FACE_FILE_LABEL = {
 class Settings:
     input_dir: str = ""
     output_dir: str = ""
-    cutout_engine: str = "rembg"            # "rembg" | "sam" | "grabcut" | "geometric"
+    cutout_engine: str = "geometric"        # "geometric" | "grabcut" | "rembg" | "sam"
     rembg_model: str = "isnet-general-use"
     sam_checkpoint: str = ""                # path to MobileSAM weights, if using SAM
     feather_px: int = 3
