@@ -35,3 +35,26 @@ def test_roi_bounds_insets_inside_the_box():
     quad = np.array([[80, 60], [520, 60], [520, 340], [80, 340]], np.float32)
     x0, y0, x1, y1 = detect.roi_bounds(quad, (400, 600), inset=10)
     assert (x0, y0, x1, y1) == (90, 70, 510, 330)
+
+
+def test_find_case_locates_the_dark_case_not_the_red_box():
+    # case (120,100,480,300) sits inside the red box (80,60,520,340);
+    # find_case should hug the content, ignoring the red outline.
+    img = make_redbox_image(box=(80, 60, 520, 340), case=(120, 100, 480, 300))
+    quad, conf, method = detect.find_case(img)
+    assert method == "content"
+    x0, y0 = quad[:, 0].min(), quad[:, 1].min()
+    x1, y1 = quad[:, 0].max(), quad[:, 1].max()
+    assert abs(x0 - 120) < 30 and abs(x1 - 480) < 30
+    assert abs(y0 - 100) < 30 and abs(y1 - 300) < 30
+
+
+def test_find_roi_prefers_content():
+    img = make_redbox_image()
+    quad, conf, method = detect.find_roi(img)
+    assert method == "content"
+
+
+def test_find_case_returns_none_on_blank():
+    img = np.full((400, 600, 3), 255, np.uint8)
+    assert detect.find_case(img) is None

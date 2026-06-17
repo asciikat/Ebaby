@@ -69,6 +69,55 @@ def find_red_box(bgr: np.ndarray):
     return quad, 0.0, "whole-image"
 
 
+def find_case(bgr: np.ndarray):
+    """Locate the DVD case directly as the largest non-white, non-red blob.
+
+    On the real template a sheet has two red boxes (one holding the case, one
+    empty) plus X-marks and handwriting, and the red outlines merge into one
+    contour -- so parsing "the box" is unreliable. The case itself is the only
+    large patch of content that is neither white paper nor red marker, which is a
+    far more robust signal. Returns (quad, confidence, "content") or None.
+    """
+    h, w = bgr.shape[:2]
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    red = red_mask(bgr) > 0
+    content = ((gray < 205) & ~red).astype(np.uint8) * 255
+
+    kx, ky = max(9, w // 60), max(9, h // 60)
+    content = cv2.morphologyEx(
+        content, cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (kx, ky)), iterations=2)
+    content = cv2.morphologyEx(
+        content, cv2.MORPH_OPEN,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)), iterations=1)
+
+    contours, _ = cv2.findContours(content, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    c = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(c)
+    if area < 0.05 * h * w:          # too small to be a case
+        return None
+
+    x, y, bw, bh = cv2.boundingRect(c)
+    pad_x, pad_y = int(bw * 0.025), int(bh * 0.025)   # keep the plastic rim
+    x0 = max(0, x - pad_x)
+    y0 = max(0, y - pad_y)
+    x1 = min(w, x + bw + pad_x)
+    y1 = min(h, y + bh + pad_y)
+    quad = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], np.float32)
+    conf = min(1.0, (area / (h * w)) / 0.40)
+    return quad, conf, "content"
+
+
+def find_roi(bgr: np.ndarray):
+    """Region of interest for the cutout: case content first, red box as fallback."""
+    found = find_case(bgr)
+    if found is not None:
+        return found
+    return find_red_box(bgr)
+
+
 def roi_bounds(quad, shape, inset: int = RED_INSET_PX):
     """Axis-aligned (x0, y0, x1, y1) just inside the quad, clipped to the image."""
     h, w = shape[:2]

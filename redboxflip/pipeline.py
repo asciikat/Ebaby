@@ -36,7 +36,7 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
     if manual_quad is not None:
         quad, conf, det_method = manual_quad, 1.0, "manual"
     else:
-        quad, conf, det_method = detect.find_red_box(bgr)
+        quad, conf, det_method = detect.find_roi(bgr)
 
     rgba, cut_method = cutout.make_cutout(
         bgr, quad, settings.cutout_engine, settings.feather_px,

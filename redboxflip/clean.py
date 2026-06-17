@@ -7,13 +7,32 @@ from .detect import red_mask
 from .models import Face
 
 
-def erase_red_to_white(rgba: np.ndarray) -> np.ndarray:
-    """Set any residual red pixels (in an RGBA array) to transparent."""
+def erase_red_to_white(rgba: np.ndarray, border_frac: float = 0.06) -> np.ndarray:
+    """Make the red marker transparent only in a thin border ring of the cutout.
+
+    The marker red and red cover artwork (e.g. a red "SPECIAL FEATURES" panel)
+    are the *same* hue, so colour alone can't tell them apart. Location can: the
+    marker sits at the case perimeter, the artwork in the interior. So we erase
+    red only within `border_frac` of the opaque region's edge — clearing the
+    perimeter marker / red-through-plastic rim while leaving interior art intact.
+    """
     rgb = rgba[:, :, :3]
     bgr = np.ascontiguousarray(rgb[:, :, ::-1])
-    m = red_mask(bgr)
+    red = red_mask(bgr) > 0
+
+    h, w = rgba.shape[:2]
+    opaque = (rgba[:, :, 3] > 20).astype(np.uint8)
+    k = max(3, int(round(min(h, w) * border_frac)))
+    if k % 2 == 0:
+        k += 1
+    # borderValue=0 so opaque pixels touching the crop edge (the tight cutout
+    # touches all edges) are eroded and counted as border, not preserved.
+    eroded = cv2.erode(opaque, cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)),
+                       borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    border = (opaque > 0) & (eroded == 0)
+
     rgba = rgba.copy()
-    rgba[m > 0, 3] = 0
+    rgba[red & border, 3] = 0
     return rgba
 
 
