@@ -58,3 +58,65 @@ def test_find_roi_prefers_content():
 def test_find_case_returns_none_on_blank():
     img = np.full((400, 600, 3), 255, np.uint8)
     assert detect.find_case(img) is None
+
+
+# ── A4 detection tests ────────────────────────────────────────────────────────
+
+def _make_a4_scene(landscape=False):
+    """Synthetic: near-white rectangle on dark background, A4-ish proportions."""
+    if landscape:
+        img_w, img_h, pw, ph = 1200, 900, 1100, 780
+    else:
+        img_w, img_h, pw, ph = 900, 1200, 780, 1100
+    img = np.full((img_h, img_w, 3), 30, np.uint8)
+    x0 = (img_w - pw) // 2
+    y0 = (img_h - ph) // 2
+    img[y0:y0 + ph, x0:x0 + pw] = 240
+    return img
+
+
+def test_detect_a4_finds_portrait_paper():
+    img = _make_a4_scene(landscape=False)
+    result = detect.detect_a4(img)
+    assert result is not None
+    _M, warped, landscape = result
+    assert not landscape
+    h, w = warped.shape[:2]
+    assert w == int(detect.A4_W_CM * detect.A4_PX_PER_CM)
+    assert h == int(detect.A4_H_CM * detect.A4_PX_PER_CM)
+
+
+def test_detect_a4_finds_landscape_paper():
+    img = _make_a4_scene(landscape=True)
+    result = detect.detect_a4(img)
+    assert result is not None
+    _M, warped, landscape = result
+    assert landscape
+    h, w = warped.shape[:2]
+    assert w == int(detect.A4_H_CM * detect.A4_PX_PER_CM)
+    assert h == int(detect.A4_W_CM * detect.A4_PX_PER_CM)
+
+
+def test_detect_a4_returns_none_on_dark_image():
+    img = np.full((900, 1200, 3), 30, np.uint8)
+    assert detect.detect_a4(img) is None
+
+
+def test_closed_dvd_rect_within_portrait_a4():
+    x0, y0, x1, y1 = detect.closed_dvd_rect_px()
+    cw = int(detect.A4_W_CM * detect.A4_PX_PER_CM)
+    ch = int(detect.A4_H_CM * detect.A4_PX_PER_CM)
+    assert 0 <= x0 < x1 <= cw
+    assert 0 <= y0 < y1 <= ch
+    assert abs((x1 - x0) / detect.A4_PX_PER_CM - 13.5) < 0.5
+    assert abs((y1 - y0) / detect.A4_PX_PER_CM - 19.0) < 0.5
+
+
+def test_open_dvd_rect_within_landscape_a4():
+    x0, y0, x1, y1 = detect.open_dvd_rect_px()
+    cw = int(detect.A4_H_CM * detect.A4_PX_PER_CM)   # landscape width
+    ch = int(detect.A4_W_CM * detect.A4_PX_PER_CM)   # landscape height
+    assert 0 <= x0 < x1 <= cw
+    assert 0 <= y0 < y1 <= ch
+    assert abs((x1 - x0) / detect.A4_PX_PER_CM - 28.0) < 0.5
+    assert abs((y1 - y0) / detect.A4_PX_PER_CM - 19.0) < 0.5

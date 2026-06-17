@@ -118,6 +118,104 @@ def find_roi(bgr: np.ndarray):
     return find_red_box(bgr)
 
 
+# ── A4 physical constants ──────────────────────────────────────────────────────
+A4_W_CM = 21.0     # portrait width
+A4_H_CM = 29.7     # portrait height
+A4_PX_PER_CM = 100  # canonical warp resolution (pixels per centimetre)
+
+# Closed case (back / front) on portrait A4
+# Bottom-left of DVD case at (3 cm from left, 3 cm from bottom)
+_CLOSED_L_CM = 3.0
+_CLOSED_B_CM = 3.0
+_CLOSED_W_CM = 13.5
+_CLOSED_H_CM = 19.0
+
+# Open case (inside) on landscape A4
+# Top-right of DVD case at (1 cm from right, 1 cm from top)
+_OPEN_R_CM = 1.0
+_OPEN_T_CM = 1.0
+_OPEN_W_CM = 28.0
+_OPEN_H_CM = 19.0
+
+
+def detect_a4(bgr: np.ndarray):
+    """Find the A4 paper and warp it to a canonical pixel space.
+
+    Returns (M, warped_bgr, landscape) where M is the 3×3 homography and
+    warped_bgr is the perspective-corrected sheet at A4_PX_PER_CM resolution.
+    Returns None when no A4-like quadrilateral is found.
+    """
+    h, w = bgr.shape[:2]
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, k, iterations=2)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,  k, iterations=1)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    best, best_area = None, 0.0
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < 0.15 * h * w:
+            continue
+        peri = cv2.arcLength(c, True)
+        for eps in (0.02, 0.03, 0.05):
+            approx = cv2.approxPolyDP(c, eps * peri, True)
+            if len(approx) == 4 and area > best_area:
+                best, best_area = approx.reshape(4, 2).astype(np.float32), area
+                break
+
+    if best is None:
+        return None
+
+    pts = order_points(best)
+    w_avg = (np.linalg.norm(pts[1] - pts[0]) + np.linalg.norm(pts[2] - pts[3])) / 2
+    h_avg = (np.linalg.norm(pts[3] - pts[0]) + np.linalg.norm(pts[2] - pts[1])) / 2
+    landscape = w_avg > h_avg
+
+    # Reject if aspect ratio is too far from A4 (within ±40 %)
+    expected = (A4_H_CM / A4_W_CM) if landscape else (A4_W_CM / A4_H_CM)
+    ratio = w_avg / max(h_avg, 1.0)
+    if abs(ratio - expected) / expected > 0.40:
+        return None
+
+    px = A4_PX_PER_CM
+    if landscape:
+        cw, ch = int(A4_H_CM * px), int(A4_W_CM * px)   # 2970 × 2100
+    else:
+        cw, ch = int(A4_W_CM * px), int(A4_H_CM * px)   # 2100 × 2970
+
+    dst = np.array([[0, 0], [cw - 1, 0], [cw - 1, ch - 1], [0, ch - 1]], np.float32)
+    M = cv2.getPerspectiveTransform(pts, dst)
+    warped = cv2.warpPerspective(bgr, M, (cw, ch))
+    return M, warped, landscape
+
+
+def closed_dvd_rect_px() -> tuple:
+    """Crop rect (x0, y0, x1, y1) in portrait-A4 pixel space for back/front."""
+    s = A4_PX_PER_CM
+    ch = int(A4_H_CM * s)
+    x0 = int(_CLOSED_L_CM * s)
+    y1 = ch - int(_CLOSED_B_CM * s)
+    y0 = y1 - int(_CLOSED_H_CM * s)
+    x1 = x0 + int(_CLOSED_W_CM * s)
+    return x0, y0, x1, y1
+
+
+def open_dvd_rect_px() -> tuple:
+    """Crop rect (x0, y0, x1, y1) in landscape-A4 pixel space for inside."""
+    s = A4_PX_PER_CM
+    cw = int(A4_H_CM * s)   # landscape width = 29.7 cm → 2970 px
+    x1 = cw - int(_OPEN_R_CM * s)
+    x0 = max(0, x1 - int(_OPEN_W_CM * s))
+    y0 = int(_OPEN_T_CM * s)
+    y1 = y0 + int(_OPEN_H_CM * s)
+    return x0, y0, x1, y1
+
+
 def roi_bounds(quad, shape, inset: int = RED_INSET_PX):
     """Axis-aligned (x0, y0, x1, y1) just inside the quad, clipped to the image."""
     h, w = shape[:2]

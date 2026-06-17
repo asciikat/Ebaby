@@ -2,6 +2,9 @@
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from . import clean, cutout, detect, naming, titles
 from .barcode import decode as decode_barcode
 from .config import load_cache_for_batch
@@ -33,6 +36,46 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
     t0 = time.perf_counter()
     bgr = load_image_bgr(path)
 
+    # ── Primary: A4 reference-mark crop ──────────────────────────────────────
+    # Detect the white A4 sheet, warp to canonical space, then crop the DVD
+    # region using known physical dimensions + pencil-mark offsets.
+    if manual_quad is None:
+        a4 = detect.detect_a4(bgr)
+        if a4 is not None:
+            _M, warped, landscape = a4
+            if landscape == (face == Face.INSIDE):
+                rect = (detect.open_dvd_rect_px() if face == Face.INSIDE
+                        else detect.closed_dvd_rect_px())
+                x0, y0, x1, y1 = rect
+                cropped_bgr = warped[y0:y1, x0:x1].copy()
+
+                barcode_digits = None
+                if face == Face.BACK:
+                    barcode_digits, _, _ = decode_barcode(cropped_bgr)
+                    if barcode_digits is None:
+                        barcode_digits, _, _ = decode_barcode(bgr)
+
+                rgb = cv2.cvtColor(cropped_bgr, cv2.COLOR_BGR2RGB)
+                rgba = np.dstack([rgb, np.full(rgb.shape[:2], 255, np.uint8)])
+
+                rot = extra_rotation % 360
+                if extra_rotation:
+                    for _ in range((extra_rotation // 90) % 4):
+                        rgba = np.ascontiguousarray(np.rot90(rgba, k=-1))
+
+                if settings.colour_tidy:
+                    rgba = clean.colour_tidy_rgba(rgba, 0.6)
+
+                composed = clean.compose_on_white_square(rgba, settings.margin_pct)
+                composed = resize_max_pil(composed, settings.max_edge_px)
+                return composed, ShotResult(
+                    input_path=str(path), face=face, barcode=barcode_digits,
+                    detect_method="a4-ref", detect_conf=1.0,
+                    cutout_method="a4-crop", rotation=rot, status="ok",
+                    elapsed_ms=int((time.perf_counter() - t0) * 1000),
+                )
+
+    # ── Fallback: blob detection + cutout engine ──────────────────────────────
     if manual_quad is not None:
         quad, conf, det_method = manual_quad, 1.0, "manual"
     else:
@@ -50,24 +93,20 @@ def process_shot(path, face, settings, manual_quad=None, extra_rotation=0):
     rgba, rot = clean.auto_upright(rgba, face)
     rot = (rot + extra_rotation) % 360
     if extra_rotation:
-        import numpy as np
-        steps = (extra_rotation // 90) % 4
-        for _ in range(steps):
-            rgba = np.ascontiguousarray(np.rot90(rgba, k=-1))  # clockwise
+        for _ in range((extra_rotation // 90) % 4):
+            rgba = np.ascontiguousarray(np.rot90(rgba, k=-1))
 
     if settings.colour_tidy:
         rgba = clean.colour_tidy_rgba(rgba, 0.6)
 
     composed = clean.compose_on_white_square(rgba, settings.margin_pct)
     composed = resize_max_pil(composed, settings.max_edge_px)
-
-    result = ShotResult(
+    return composed, ShotResult(
         input_path=str(path), face=face, barcode=barcode_digits,
         detect_method=det_method, detect_conf=round(float(conf), 3),
         cutout_method=cut_method, rotation=rot, status="ok",
         elapsed_ms=int((time.perf_counter() - t0) * 1000),
     )
-    return composed, result
 
 
 def _make_run_dir(output_dir):
