@@ -12,9 +12,15 @@ TITLE_CACHE_PATH = HOME / ".redboxflip_titles.json"
 def load_settings() -> Settings:
     try:
         data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        return Settings.from_dict(data)
+        s = Settings.from_dict(data)
     except Exception:
-        return Settings()
+        s = Settings()
+    _defaults = Settings()
+    if not s.input_dir:
+        s.input_dir = _defaults.input_dir
+    if not s.output_dir:
+        s.output_dir = _defaults.output_dir
+    return s
 
 
 def save_settings(settings: Settings) -> None:

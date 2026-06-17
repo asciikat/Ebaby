@@ -22,8 +22,8 @@ FACE_FILE_LABEL = {
 
 @dataclass
 class Settings:
-    input_dir: str = ""
-    output_dir: str = ""
+    input_dir: str = "/mnt/c/Users/mardi/Documents/Ebay code/Images in"
+    output_dir: str = "/mnt/c/Users/mardi/Documents/Ebay code/processed"
     cutout_engine: str = "geometric"        # "geometric" | "grabcut" | "rembg" | "sam"
     rembg_model: str = "isnet-general-use"
     sam_checkpoint: str = ""                # path to MobileSAM weights, if using SAM
