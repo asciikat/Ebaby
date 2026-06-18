@@ -19,8 +19,9 @@ def test_run_headless_processes_a_folder(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
 
     from redboxflip import pipeline
-    monkeypatch.setattr(pipeline, "decode_barcode", lambda bgr: ("123", "t", 0))
-    monkeypatch.setattr(pipeline, "resolve_title", lambda bc, **k: ("CLI DVD", "lookup"))
+    # Keep the test hermetic: no live vision model, stub the OCR title.
+    monkeypatch.setattr(pipeline.vlm, "available", lambda: False)
+    monkeypatch.setattr(pipeline.ocr, "extract_title", lambda img: "CLI DVD")
 
     code = cli.run_headless(str(in_dir), str(out_dir),
                             engine="geometric", colour_tidy=False)

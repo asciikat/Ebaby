@@ -16,6 +16,16 @@ def test_extract_title_returns_none_on_dark_image():
     assert result is None
 
 
+def test_count_words_blank_image():
+    img = np.full((400, 300, 3), 255, np.uint8)
+    assert ocr.count_words(img) == 0
+
+
+def test_count_words_dark_image():
+    img = np.full((400, 300, 3), 0, np.uint8)
+    assert ocr.count_words(img) == 0
+
+
 @pytest.mark.skipif(
     not __import__("pathlib").Path("samples/redbox/front.jpg").exists(),
     reason="front.jpg sample not present",

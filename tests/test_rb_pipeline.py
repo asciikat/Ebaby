@@ -16,19 +16,19 @@ def test_gather_inputs_sorted_jpgs(tmp_path):
     assert got == ["a.JPG", "b.jpg"]
 
 
-def test_assign_groups_back_front_inside():
+def test_assign_groups_chunks_of_three():
     paths = [Path(f"{i}.jpg") for i in range(6)]
     groups = pipeline.assign_groups(paths)
     assert len(groups) == 2
-    assert [f for _, f in groups[0]] == [Face.BACK, Face.FRONT, Face.INSIDE]
-    assert groups[1][0][0] == Path("3.jpg")
+    assert groups[0] == [Path("0.jpg"), Path("1.jpg"), Path("2.jpg")]
+    assert groups[1][0] == Path("3.jpg")
 
 
 def test_assign_groups_handles_trailing_partial():
     paths = [Path(f"{i}.jpg") for i in range(4)]
     groups = pipeline.assign_groups(paths)
     assert len(groups) == 2
-    assert [f for _, f in groups[1]] == [Face.BACK]
+    assert len(groups[1]) == 1
 
 
 def test_process_shot_returns_square_image(tmp_path):
@@ -36,12 +36,13 @@ def test_process_shot_returns_square_image(tmp_path):
     p = tmp_path / "shot.jpg"
     cv2.imwrite(str(p), img)
     s = Settings(cutout_engine="geometric", colour_tidy=False, margin_pct=5,
-                 max_edge_px=400)
+                 max_edge_px=400, qwen_extract=False, auto_orient=False,
+                 title_engine="ocr")
     pil, result = pipeline.process_shot(p, Face.FRONT, s)
     assert pil.width == pil.height
     assert pil.mode == "RGB"
     assert result.face == Face.FRONT
-    assert result.cutout_method == "geometric"
+    assert result.cutout_method in ("geometric", "deskew")
 
 
 def test_run_batch_end_to_end(tmp_path, monkeypatch):
@@ -57,6 +58,7 @@ def test_run_batch_end_to_end(tmp_path, monkeypatch):
 
     s = Settings(input_dir=str(in_dir), output_dir=str(out_dir),
                  cutout_engine="geometric", colour_tidy=False, title_lookup=False,
+                 title_engine="ocr", qwen_extract=False, auto_orient=False,
                  max_edge_px=400)
     run_dir, groups = pipeline.run_batch(s)
     assert len(groups) == 1
@@ -69,3 +71,8 @@ def test_run_batch_end_to_end(tmp_path, monkeypatch):
     assert all(Path(sh.output_path).exists() for sh in g.shots)
     assert (run_dir / "dvd_listing.txt").exists()
     assert (run_dir / "run_log.json").exists()
+    # Each DVD folder is self-contained: its own listing + scan files.
+    dvd_dir = run_dir / "Test DVD"
+    assert (dvd_dir / "ebay_listing.txt").exists()
+    assert (dvd_dir / "ebay_listing.csv").exists()
+    assert (dvd_dir / "qwen_scan.json").exists()

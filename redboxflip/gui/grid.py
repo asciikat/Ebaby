@@ -16,7 +16,9 @@ except Exception:
 
 def badge_for(group) -> str:
     has_title = bool(group.title) and not group.title.startswith("Untitled DVD")
-    return "✓ title" if has_title else "⚠ needs review"
+    if not has_title:
+        return "⚠ needs review"
+    return "✓ title + barcode" if group.barcode else "✓ title"
 
 
 THUMB = 180
