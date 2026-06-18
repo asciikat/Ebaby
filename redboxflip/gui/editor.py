@@ -28,7 +28,10 @@ def canvas_to_image(corners, scale):
 
 # --- The dialog below is exercised by the manual smoke test. ---
 
-ENGINES = ["rembg", "sam", "grabcut", "geometric"]
+# "exact" leads: a manual quad is cut precisely (perspective-warp, no matte),
+# which is what hand-placed corners should do. AI mattes follow for cases where
+# the user would rather let a model find the edge.
+ENGINES = ["exact", "rembg", "sam", "grabcut", "geometric"]
 
 
 class ShotEditor:
@@ -63,7 +66,9 @@ class ShotEditor:
             ttk.Radiobutton(opts, text=f.value, value=f.value,
                             variable=self.face_var).grid(row=0, column=1 + i, padx=4)
         ttk.Label(opts, text="Engine:").grid(row=1, column=0, sticky="w")
-        self.engine_var = tk.StringVar(value=settings.cutout_engine)
+        # Default manual edits to the exact crop: hand-placed corners should cut
+        # exactly what was selected, not be re-matted by an AI that clips clear cases.
+        self.engine_var = tk.StringVar(value="exact")
         ttk.Combobox(opts, textvariable=self.engine_var, values=ENGINES,
                      state="readonly", width=12).grid(row=1, column=1, columnspan=2,
                                                        sticky="w", padx=4)

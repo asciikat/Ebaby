@@ -135,12 +135,18 @@ def _compose_fallback(path, bgr, face, settings, manual_quad, extra_rotation, t0
     rgba, cut_method = cutout.make_cutout(
         bgr, quad, settings.cutout_engine, settings.feather_px,
         rembg_model=settings.rembg_model, sam_checkpoint=settings.sam_checkpoint)
-    rgba = clean.erase_red_to_white(rgba)
 
     ocr_title = _front_title(bgr, None, settings) if face == Face.FRONT else None
 
-    rgba, rot = clean.auto_upright(rgba, face)
-    rot = (rot + extra_rotation) % 360
+    # Exact manual crop is WYSIWYG: keep precisely what the user selected and
+    # only the rotation they asked for — no red-erase, no auto-flip second-guess.
+    exact = cut_method == "exact"
+    if exact:
+        rot = extra_rotation % 360
+    else:
+        rgba = clean.erase_red_to_white(rgba)
+        rgba, rot = clean.auto_upright(rgba, face)
+        rot = (rot + extra_rotation) % 360
     if extra_rotation:
         for _ in range((extra_rotation // 90) % 4):
             rgba = np.ascontiguousarray(np.rot90(rgba, k=-1))
