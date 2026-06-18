@@ -196,6 +196,17 @@ def _make_run_dir(output_dir):
     return run
 
 
+def _unique_dir(run_dir, stem):
+    """A DVD folder that never collides: two same-titled DVDs would otherwise
+    write to one folder and overwrite each other's photos."""
+    candidate = run_dir / stem
+    n = 2
+    while candidate.exists():
+        candidate = run_dir / f"{stem} ({n})"
+        n += 1
+    return candidate
+
+
 def _read_title(front_upright_bgr, composed, scan_data, settings, gi):
     """Best DVD title: dedicated Qwen title reader -> scan -> front OCR -> fallback.
 
@@ -285,7 +296,7 @@ def run_batch(settings, progress_cb=None):
                        for i, p in enumerate(chunk)]))
             continue
 
-        dvd_dir = run_dir / naming.safe_stem(title)
+        dvd_dir = _unique_dir(run_dir, naming.safe_stem(title))
         dvd_dir.mkdir(parents=True, exist_ok=True)
         group = DvdGroup(index=gi, barcode=None, title=title,
                          region=settings.default_region, shots=[], scan=None)

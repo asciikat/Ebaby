@@ -31,6 +31,16 @@ def test_assign_groups_handles_trailing_partial():
     assert len(groups[1]) == 1
 
 
+def test_unique_dir_avoids_collision(tmp_path):
+    # Two DVDs with the same title must not share a folder (would overwrite).
+    a = pipeline._unique_dir(tmp_path, "Sexy Beast")
+    a.mkdir()
+    b = pipeline._unique_dir(tmp_path, "Sexy Beast")
+    assert a.name == "Sexy Beast"
+    assert b.name == "Sexy Beast (2)"
+    assert a != b
+
+
 def test_process_shot_returns_square_image(tmp_path):
     img = make_redbox_image()
     p = tmp_path / "shot.jpg"
