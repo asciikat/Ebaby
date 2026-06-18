@@ -71,8 +71,8 @@ def test_run_batch_end_to_end(tmp_path, monkeypatch):
     assert all(Path(sh.output_path).exists() for sh in g.shots)
     assert (run_dir / "dvd_listing.txt").exists()
     assert (run_dir / "run_log.json").exists()
-    # Each DVD folder is self-contained: its own listing + scan files.
+    # Ebaby is title-only: no per-DVD Qwen scan / listing files are written.
     dvd_dir = run_dir / "Test DVD"
-    assert (dvd_dir / "ebay_listing.txt").exists()
-    assert (dvd_dir / "ebay_listing.csv").exists()
-    assert (dvd_dir / "qwen_scan.json").exists()
+    assert not (dvd_dir / "ebay_listing.txt").exists()
+    assert not (dvd_dir / "qwen_scan.json").exists()
+    assert g.scan is None and g.barcode is None
