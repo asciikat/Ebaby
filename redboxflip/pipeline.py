@@ -265,8 +265,11 @@ def _process_chunk(chunk, settings, gi, progress_cb, done, total):
         if progress_cb:
             progress_cb(done, total, path.name)
 
+    # Barcode is cheap (pyzbar on the back-cover original) and accurate, so it
+    # stays in title-only mode — only the slow Qwen field scan was dropped.
+    bc = _decode_barcode(bgrs, faces)
     title = _read_title(front_upright, composed, None, settings, gi)
-    return composed, None, None, title, done
+    return composed, None, bc, title, done
 
 
 def run_batch(settings, progress_cb=None):
@@ -298,7 +301,7 @@ def run_batch(settings, progress_cb=None):
 
         dvd_dir = _unique_dir(run_dir, naming.safe_stem(title))
         dvd_dir.mkdir(parents=True, exist_ok=True)
-        group = DvdGroup(index=gi, barcode=None, title=title,
+        group = DvdGroup(index=gi, barcode=bc, title=title,
                          region=settings.default_region, shots=[], scan=None)
         for face, (pil, res) in composed.items():
             res.title, res.region = title, group.region
