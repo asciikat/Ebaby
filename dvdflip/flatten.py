@@ -63,15 +63,22 @@ def detect_a4(bgr, dump=None):
 
 
 def warp_to_a4(bgr, quad, px_per_mm=PX_PER_MM):
-    """Perspective-warp the sheet flat to true A4 proportions."""
+    """Perspective-warp the sheet flat, PRESERVING the detected quad's own aspect.
+
+    We deliberately do NOT force exact A4 proportions. When A4 detection is weak
+    (e.g. the open case leaves only a thin paper frame) the detected quad's aspect
+    differs from 1.414, and forcing it squashes the contents (a disc becomes an
+    ellipse). Preserving the quad's measured aspect keeps shapes true; the long
+    edge is scaled to ~A4 length so pixels still map ~1:1 to mm for the size test.
+    """
     rect = order_points(quad)
     tl, tr, br, bl = rect
     wid = (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)) / 2.0
     hei = (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)) / 2.0
-    if wid >= hei:
-        W, H = int(A4_LONG_MM * px_per_mm), int(A4_SHORT_MM * px_per_mm)
-    else:
-        W, H = int(A4_SHORT_MM * px_per_mm), int(A4_LONG_MM * px_per_mm)
+    long_px = max(wid, hei, 1.0)
+    scale = (A4_LONG_MM * px_per_mm) / long_px
+    W = max(int(round(wid * scale)), 2)
+    H = max(int(round(hei * scale)), 2)
     dst = np.array([[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]], dtype=np.float32)
     M = cv2.getPerspectiveTransform(rect, dst)
     return cv2.warpPerspective(bgr, M, (W, H), flags=cv2.INTER_CUBIC)

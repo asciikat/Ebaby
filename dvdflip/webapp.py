@@ -7,11 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
-from . import vision
 from .config import DEFAULT_INPUT, DEFAULT_OUTPUT, JPEG_QUALITY
 from .loader import load_bgr, gather_inputs
 from .listing import group_photos, write_listing_txt, write_batch_csv, write_run_log, _slug
-from .pipeline import process_image
+from .pipeline import process_image, reconcile_orientation
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -51,19 +50,9 @@ def build_session(input_dir=None, output_base=None, progress=print):
 
     groups = group_photos(photos)
     for g in groups:
-        front = next((p for p in g.photos if p.side == "front"), None)
-        back = next((p for p in g.photos if p.side == "back"), None)
-        if front and front.work_image:
-            f_bgr = load_bgr(front.work_image)
-            b_bgr = load_bgr(back.work_image) if back and back.work_image else None
-            fields = vision.draft_listing(f_bgr, b_bgr, g.barcode)
-            g.listing_title = fields["listing_title"] or g.title
-            g.description = fields["description"]
-            g.genre = fields["genre"]; g.region = fields["region"]
-            g.runtime = fields["runtime"]; g.studio = fields["studio"]
-            g.year = g.year or fields["year"]
-        else:
-            g.listing_title = g.title
+        reconcile_orientation(g.photos)
+        # Listing text is filled in by hand in the review screen (model dropped).
+        g.listing_title = g.title
     return Session(run_dir=run_dir, work_dir=work_dir, groups=groups)
 
 

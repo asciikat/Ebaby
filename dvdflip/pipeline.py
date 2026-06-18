@@ -1,16 +1,13 @@
 from pathlib import Path
 import cv2
 
-from . import vision
 from .config import REVIEW_CONFIDENCE, OUTPUT_MAX_DIM, JPEG_QUALITY
 from .loader import load_bgr
 from .flatten import detect_a4, warp_to_a4
 from .clean import (white_balance_from_paper, segment_dvd, crop_rect,
-                    dvd_size_mm, scan_barcodes, enhance, composite_on_white,
-                    resize_max)
+                    dvd_size_mm, classify_view, orient_for_view, upright_vote,
+                    scan_barcodes, enhance, composite_on_white, resize_max)
 from .models import Photo
-
-_ROT = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
 
 
 def _write_work(bgr, work_dir, stem):
@@ -45,9 +42,11 @@ def process_image(path, work_dir):
     barcode = barcodes[0] if barcodes else None
     size_mm = dvd_size_mm(box)
 
-    result = vision.classify_photo(dvd, size_mm, barcode)
-    if result.rotation_cw in _ROT:
-        dvd = cv2.rotate(dvd, _ROT[result.rotation_cw])
+    view = classify_view(box, has_barcode=bool(barcode))
+    dvd = orient_for_view(dvd, view)
+    flip, sure = upright_vote(dvd)
+    if sure and flip:
+        dvd = cv2.rotate(dvd, cv2.ROTATE_180)
 
     dvd = enhance(dvd)
     final = resize_max(composite_on_white(dvd), OUTPUT_MAX_DIM)
@@ -55,12 +54,34 @@ def process_image(path, work_dir):
     return Photo(
         source_path=path,
         work_image=_write_work(final, work_dir, stem),
-        side=result.side,
-        rotation_cw=result.rotation_cw,
-        confidence=result.confidence,
+        side=view,
+        rotation_cw=0,
+        confidence=conf,
         barcode=barcode,
         size_mm=size_mm,
         a4_found=True,
-        title=result.title,
-        year=result.year,
+        orient_flip=flip,
+        orient_confident=sure,
     )
+
+
+def reconcile_orientation(photos):
+    """Flip text-ambiguous covers 180 to match confidently-oriented covers in the group.
+
+    Geometry can't tell up from down; OCR confidently uprights text-heavy covers
+    (usually the back). Every shot in a group shares one capture orientation, so an
+    ambiguous cover (e.g. a stylised front) follows the confident vote.
+    """
+    covers = [p for p in photos if p.side in ("front", "back")]
+    votes = [p.orient_flip for p in covers if p.orient_confident]
+    if not votes or sum(votes) <= len(votes) / 2.0:
+        return
+    for p in covers:
+        if p.orient_confident or not p.work_image:
+            continue
+        img = cv2.imread(str(p.work_image))
+        if img is None:
+            continue
+        cv2.imwrite(str(p.work_image), cv2.rotate(img, cv2.ROTATE_180),
+                    [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        p.extra_rotation_cw = (p.extra_rotation_cw + 180) % 360

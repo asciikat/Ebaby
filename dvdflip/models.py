@@ -26,6 +26,8 @@ class Photo:
     year: Optional[int] = None
     deleted: bool = False
     extra_rotation_cw: int = 0
+    orient_flip: bool = False
+    orient_confident: bool = False
 
 @dataclass
 class DvdGroup:

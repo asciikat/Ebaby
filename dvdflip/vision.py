@@ -3,7 +3,8 @@ import json
 import cv2
 import requests
 
-from .config import OLLAMA_URL, MODEL_TAG, VISION_TIMEOUT
+from .config import (OLLAMA_URL, MODEL_TAG, VISION_TIMEOUT,
+                     VISION_IMAGE_MAX_SIDE, VISION_NUM_CTX)
 from .models import ClassifyResult, VALID_SIDES
 
 CLASSIFY_PROMPT = (
@@ -11,13 +12,13 @@ CLASSIFY_PROMPT = (
     "The item is about {short:.0f} x {long:.0f} mm. {barcode_hint}\n"
     "Answer ONLY with JSON of this exact shape:\n"
     '{{"side": "front|back|center|spine|other", '
-    '"rotation_cw": 0, "title": "", "year": null, "confidence": 0.0}}\n'
+    '"rotation_cw": 0, "confidence": 0.0}}\n'
     "Definitions: 'front' = front cover art; 'back' = back cover (usually has a "
     "barcode and small print); 'center' = an open case / disc tray (much larger, "
     "landscape); 'spine' = thin edge. rotation_cw is the clockwise degrees "
     "(0, 90, 180 or 270) needed to make the item upright and readable. "
-    "title and year come from the cover text; use null for year if unknown. "
-    "confidence is 0..1 for how sure you are about side and rotation."
+    "confidence is 0..1 for how sure you are about side and rotation. "
+    "Do NOT read the title or add any other fields — keep the reply tiny."
 )
 
 LISTING_PROMPT = (
@@ -31,7 +32,7 @@ LISTING_PROMPT = (
 )
 
 
-def _bgr_to_b64(bgr, max_side=1024):
+def _bgr_to_b64(bgr, max_side=VISION_IMAGE_MAX_SIDE):
     h, w = bgr.shape[:2]
     if max(h, w) > max_side:
         f = max_side / float(max(h, w))
@@ -44,7 +45,9 @@ def _chat(messages, model=MODEL_TAG):
     """POST to Ollama /api/chat, return the model's text content."""
     resp = requests.post(
         f"{OLLAMA_URL}/api/chat",
-        json={"model": model, "messages": messages, "stream": False, "format": "json"},
+        json={"model": model, "messages": messages, "stream": False,
+              "format": "json", "keep_alive": "30m",
+              "options": {"num_ctx": VISION_NUM_CTX}},
         timeout=VISION_TIMEOUT,
     )
     resp.raise_for_status()

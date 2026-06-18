@@ -18,7 +18,28 @@
       "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pip install --upgrade pip --quiet)",
       "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe --version)",
       "PowerShell(\"--- branch ---\")",
-      "PowerShell(\"--- venv python ---\")"
+      "PowerShell(\"--- venv python ---\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Read(//c/Users/mardi/ebay-venv/venv/bin/**)",
+      "Bash(bash -lc \"source ~/ebay-venv/venv/bin/activate 2>/dev/null && python3 -c 'import sys,cv2,numpy,PIL; print\\(sys.executable\\); print\\(\\\\\"cv2\\\\\",cv2.__version__\\)'\")",
+      "Bash(git commit -m 'feat\\(redbox\\): core data models \\(Face, Settings, ShotResult, DvdGroup\\) *)",
+      "Bash(git commit -m 'feat\\(redbox\\): erase-red, auto-upright, compose-on-white, colour tidy *)",
+      "Bash(ls redboxflip *)",
+      "Bash(ls tests *)",
+      "Bash(git commit -m 'feat\\(redbox\\): robust multi-decoder barcode scanning *)",
+      "Bash(ls redboxflip/)",
+      "Bash(ls tests/)",
+      "Read(//c/c/Users/mardi/Documents/Ebay code/**)",
+      "WebFetch(domain:gemini.google.com)",
+      "PowerShell($o = Get-Command ollama -ErrorAction SilentlyContinue; if \\($o\\) { Write-Output $o.Source; ollama list } else { Write-Output \"ollama not on PATH\" }; Write-Output \"---\"; Get-ChildItem \"$env:LOCALAPPDATA\\\\Programs\\\\Ollama\" -ErrorAction SilentlyContinue | Select-Object -First 5 Name)",
+      "PowerShell($p = \"C:\\\\Users\\\\mardi\\\\Documents\\\\Ebay code\\\\Images in\\\\front.jpg\"; Write-Output \\(\"Exists: \" + \\(Test-Path -LiteralPath $p\\)\\); Get-ChildItem -LiteralPath \"C:\\\\Users\\\\mardi\\\\Documents\\\\Ebay code\\\\Images in\" | Select-Object Name, Length)",
+      "PowerShell(wsl.exe -e bash -lc \"source ~/ebay-venv/venv/bin/activate && cd '/mnt/c/Users/mardi/Documents/Ebay code' && python3 -m pytest tests/test_rb_pipeline.py tests/test_rb_ocr.py tests/test_rb_vlm.py -v 2>&1 | tail -30\")",
+      "PowerShell($r = Invoke-RestMethod -Uri \"http://127.0.0.1:11434/api/tags\" -Method Get; $r.models | Select-Object name, size | Format-Table -AutoSize)",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\('['+k+']', \\(v or ''\\)[:500],'\\\\n'\\) for k,v in \\(d['scan']['raw_text'] or {}\\).items\\(\\)]\")",
+      "Bash(node -e \"const d=require\\('./qwen_scan.json'\\); for\\(const[k,v]of Object.entries\\(d.scan.raw_text||{}\\)\\){console.log\\('['+k+']',\\(v||''\\).slice\\(0,500\\),'\\\\n'\\)}\")",
+      "PowerShell($ps = Invoke-RestMethod -Uri \"http://127.0.0.1:11434/api/ps\" -Method Get; \"LOADED: $\\($ps.models | ForEach-Object { $_.name + ' vram=' + [math]::Round\\($_.size_vram/1GB,2\\) + 'GB' }\\)\"; $b = @{model=\"qwen3.5:4b\"; prompt=\"Reply with exactly: HELLO\"; stream=$false; think=$false; options=@{num_predict=10; temperature=0}} | ConvertTo-Json; $t=Get-Date; $r = Invoke-RestMethod -Uri \"http://127.0.0.1:11434/api/generate\" -Method Post -Body $b -ContentType \"application/json\"; \"TEXT CALL \\($\\([math]::Round\\(\\(\\(Get-Date\\)-$t\\).TotalSeconds,1\\)\\)s\\): '$\\($r.response.Trim\\(\\)\\)'\")"
     ]
   }
 }

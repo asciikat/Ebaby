@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
-from .config import PX_PER_MM, PADDING_PCT
+from .config import PX_PER_MM, PADDING_PCT, CENTER_LONG_MM
 from .flatten import order_points
 
 
@@ -75,6 +75,54 @@ def dvd_size_mm(box):
     long_mm = max(w, h) / PX_PER_MM
     short_mm = min(w, h) / PX_PER_MM
     return float(short_mm), float(long_mm)
+
+
+def classify_view(box, has_barcode):
+    """Deterministic view: center if physically large, else back if barcode, else front."""
+    _short_mm, long_mm = dvd_size_mm(box)
+    if long_mm >= CENTER_LONG_MM:
+        return "center"
+    return "back" if has_barcode else "front"
+
+
+def orient_for_view(dvd_bgr, view):
+    """Front/back -> portrait; center (open case) -> landscape."""
+    h, w = dvd_bgr.shape[:2]
+    if view == "center":
+        if h > w:
+            return cv2.rotate(dvd_bgr, cv2.ROTATE_90_CLOCKWISE)
+    elif w > h:
+        return cv2.rotate(dvd_bgr, cv2.ROTATE_90_CLOCKWISE)
+    return dvd_bgr
+
+
+def _ocr_text_score(bgr):
+    """(summed word-confidence, word-count) for confidently-read text via tesseract."""
+    try:
+        import pytesseract
+        d = pytesseract.image_to_data(bgr, output_type=pytesseract.Output.DICT,
+                                      config="--psm 11 --dpi 300")
+    except Exception:
+        return 0.0, 0
+    score, n = 0.0, 0
+    for t, c in zip(d["text"], d["conf"]):
+        try:
+            c = float(c)
+        except (TypeError, ValueError):
+            c = -1.0
+        if len(t.strip()) >= 3 and c > 40:
+            score += c
+            n += 1
+    return score, n
+
+
+def upright_vote(dvd_bgr):
+    """Is the crop upside down? Reads text at 0 vs 180. Returns (needs_flip, confident)."""
+    s0, n0 = _ocr_text_score(dvd_bgr)
+    s180, n180 = _ocr_text_score(cv2.rotate(dvd_bgr, cv2.ROTATE_180))
+    if max(n0, n180) >= 5 and abs(s0 - s180) > 0.25 * max(s0, s180, 1.0):
+        return (s180 > s0), True
+    return False, False
 
 
 def crop_rect(bgr, box):
