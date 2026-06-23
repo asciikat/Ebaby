@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ebaby gemini - Studio Cropper (fixed)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        canvas { max-width: 100%; height: auto; border-radius: 0.375rem; }
+        #displayCanvas { cursor: crosshair; touch-action: none; }
+        #loader {
+            position: fixed; inset: 0; background: rgba(255,255,255,0.95);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 50;
+        }
+        .spinner { border: 4px solid #fee2e2; border-top: 4px solid #dc2626; border-radius: 50%; width: 48px; height: 48px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        input[type=range] { accent-color: #dc2626; }
+        .checkerboard {
+            background-color: #fef2f2;
+            background-image: repeating-linear-gradient(45deg, #fca5a5 25%, transparent 25%, transparent 75%, #fca5a5 75%, #fca5a5), repeating-linear-gradient(45deg, #fca5a5 25%, #fef2f2 25%, #fef2f2 75%, #fca5a5 75%, #fca5a5);
+            background-position: 0 0, 10px 10px; background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="bg-rose-50 text-slate-800 min-h-screen p-4 md:p-6 font-sans">
+
+    <div id="loader">
+        <div class="spinner mb-4"></div>
+        <h2 class="text-2xl font-bold text-red-900">Loading Ebaby gemini Engine...</h2>
+        <p class="text-red-700 mt-2 font-medium">Downloading OpenCV vision libraries</p>
+    </div>
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header & Controls -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-red-900 mb-1">Ebaby gemini <span class="text-red-500 text-lg">PRO</span></h1>
+                    <p class="text-red-400 text-sm">Drag the 4 corners to fix any crop. Auto-detect + manual + rotate.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <label class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-colors font-semibold shadow-sm flex items-center gap-2">
+                        Upload Photo
+                        <input type="file" id="imageInput" accept="image/*" multiple class="hidden">
+                    </label>
+                    <button id="prevBtn" class="bg-white border border-red-200 hover:bg-red-50 text-red-800 px-4 py-2.5 rounded-lg font-semibold hidden">‹ Prev</button>
+                    <button id="nextBtn" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm hidden">Save &amp; Next ›</button>
+                    <button id="finishBtn" class="bg-red-900 hover:bg-red-950 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm hidden">Finish batch</button>
+                    <span id="posText" class="text-sm font-bold text-red-700 bg-red-50 px-3 py-1.5 rounded-md border border-red-100 hidden">—</span>
+                    <span id="statusText" class="text-sm font-semibold text-red-400 bg-red-50 px-3 py-1.5 rounded-md border border-red-100">Waiting...</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 p-5 bg-rose-50 rounded-xl border border-red-100">
+                <!-- Targeting / corners -->
+                <div class="space-y-4 border-r border-red-200 pr-0 md:pr-8">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-bold text-red-800 uppercase tracking-wider">1. Targeting</h3>
+                        <div class="flex gap-2">
+                            <button id="autoBtn" class="text-xs bg-red-100 hover:bg-red-200 text-red-800 font-semibold px-2.5 py-1 rounded">Auto-detect</button>
+                            <button id="resetBtn" class="text-xs bg-red-100 hover:bg-red-200 text-red-800 font-semibold px-2.5 py-1 rounded">Reset box</button>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-red-400 leading-tight">Drag the red corner handles over the DVD case. The crop uses exactly those 4 points, so it is always correct even when auto-detect misses.</p>
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label class="text-sm font-semibold text-red-900">Edge Sensitivity</label>
+                            <span id="cannyVal" class="text-xs text-red-600 font-mono">50</span>
+                        </div>
+                        <input type="range" id="cannyLow" min="10" max="150" value="50" class="w-full">
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label class="text-sm font-semibold text-red-900">Connect Broken Edges</label>
+                            <span id="dilateVal" class="text-xs text-red-600 font-mono">5</span>
+                        </div>
+                        <input type="range" id="dilateSlider" min="0" max="10" value="5" class="w-full">
+                        <p class="text-[10px] text-red-400 leading-tight mt-1">Auto-detect only. Higher bridges the hinge on open DVD cases.</p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-bold text-red-800 uppercase tracking-wider mb-1 mt-2">Rotate output</h4>
+                        <div class="flex gap-2">
+                            <button data-rot="-90" class="rotBtn text-sm bg-white border border-red-200 hover:bg-red-50 text-red-800 font-semibold px-3 py-1.5 rounded">⟲ 90</button>
+                            <button data-rot="90" class="rotBtn text-sm bg-white border border-red-200 hover:bg-red-50 text-red-800 font-semibold px-3 py-1.5 rounded">90 ⟳</button>
+                            <button data-rot="180" class="rotBtn text-sm bg-white border border-red-200 hover:bg-red-50 text-red-800 font-semibold px-3 py-1.5 rounded">180</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Studio Finish -->
+                <div class="space-y-4">
+                    <h3 class="text-sm font-bold text-red-600 uppercase tracking-wider mb-2">2. Studio Finish</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-sm font-semibold text-red-900">Shave Edges</label>
+                                <span id="shaveVal" class="text-xs text-red-600 font-mono">8px</span>
+                            </div>
+                            <input type="range" id="shaveSlider" min="0" max="40" value="8" class="w-full">
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-sm font-semibold text-red-600">Corner Radius</label>
+                                <span id="radiusVal" class="text-xs font-bold text-red-700 font-mono">15px</span>
+                            </div>
+                            <input type="range" id="radiusSlider" min="0" max="80" value="15" class="w-full">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-sm font-semibold text-red-900">Feather (Blur)</label>
+                                <span id="blurVal" class="text-xs text-red-600 font-mono">15px</span>
+                            </div>
+                            <input type="range" id="blurSlider" min="0" max="100" value="15" class="w-full">
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-sm font-semibold text-red-900">Padding</label>
+                                <span id="paddingVal" class="text-xs text-red-600 font-mono">60px</span>
+                            </div>
+                            <input type="range" id="paddingSlider" min="0" max="150" value="60" class="w-full">
+                        </div>
+                        <div class="col-span-2 flex items-center gap-2 mt-2 bg-white p-2 rounded-lg border border-red-100">
+                            <input type="checkbox" id="squareOutput" checked class="w-5 h-5 text-red-600 rounded border-red-300 accent-red-600 cursor-pointer">
+                            <label for="squareOutput" class="text-sm font-semibold text-red-900 cursor-pointer select-none">Force 1:1 Square Output</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-red-100 flex flex-col">
+                <h3 class="font-bold text-red-900 mb-2 flex items-center gap-2">
+                    <span class="bg-red-100 text-red-700 rounded-md w-6 h-6 flex items-center justify-center text-xs">1</span>
+                    Targeting — drag corners
+                </h3>
+                <div class="flex-grow flex items-center justify-center bg-rose-50 rounded-xl overflow-hidden relative border border-red-100">
+                    <canvas id="sourceCanvas" class="hidden"></canvas>
+                    <canvas id="displayCanvas"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-red-100 flex flex-col">
+                <h3 class="font-bold text-red-900 mb-2 flex items-center gap-2">
+                    <span class="bg-red-200 text-red-800 rounded-md w-6 h-6 flex items-center justify-center text-xs">2</span>
+                    Edge Map (auto-detect)
+                </h3>
+                <div class="flex-grow flex items-center justify-center bg-black rounded-xl overflow-hidden border border-red-900">
+                    <canvas id="debugCanvas"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-red-100 flex flex-col ring-4 ring-red-500 ring-opacity-20">
+                <h3 class="font-bold text-red-900 mb-2 flex items-center gap-2">
+                    <span class="bg-red-600 text-white rounded-md w-6 h-6 flex items-center justify-center text-xs shadow-sm">3</span>
+                    Ebaby gemini Output
+                </h3>
+                <div class="flex-grow flex items-center justify-center bg-[#f0f0f0] rounded-xl overflow-hidden relative border border-red-200 checkerboard">
+                    <canvas id="outputCanvas" class="shadow-xl"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-5 right-5 z-50 hidden max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-semibold"></div>
+
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvLoaded();" type="text/javascript"></script>
+
+    <script>
+        let isCvLoaded = false;
+        let imageLoaded = false;
+        let corners = null;          // [{x,y}] in SOURCE-image coords
+        let displayScale = 1;        // displayCanvas px per source px
+        let dragIndex = -1;
+        let outputRotation = 0;      // 0/90/180/270 applied to the warped result
+
+        const sourceCanvas = document.getElementById('sourceCanvas');
+        const displayCanvas = document.getElementById('displayCanvas');
+        const debugCanvas = document.getElementById('debugCanvas');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const statusText = document.getElementById('statusText');
+
+        const HANDLE_R = 9;          // drawn handle radius (display px)
+        const GRAB_R = 26;           // grab tolerance (display px)
+
+        const sliders = ['cannyLow', 'dilateSlider', 'shaveSlider', 'radiusSlider', 'paddingSlider', 'blurSlider']
+            .map(id => document.getElementById(id));
+
+        sliders.forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const valTarget = document.getElementById(e.target.id.replace('Slider', 'Val').replace('Low', 'Val'));
+                if (valTarget) {
+                    const px = ['shaveSlider', 'radiusSlider', 'paddingSlider', 'blurSlider'].includes(e.target.id) ? 'px' : '';
+                    valTarget.textContent = e.target.value + px;
+                }
+                // Edge/dilate change re-runs auto-detect; finish sliders only re-render output.
+                if (imageLoaded) {
+                    if (e.target.id === 'cannyLow' || e.target.id === 'dilateSlider') scheduleAuto();
+                    else scheduleOutput();
+                }
+            });
+        });
+
+        document.getElementById('squareOutput').addEventListener('change', () => { if (imageLoaded) scheduleOutput(); });
+        document.getElementById('autoBtn').addEventListener('click', () => { if (imageLoaded) runAutoDetect(); });
+        document.getElementById('resetBtn').addEventListener('click', () => { if (imageLoaded) { setDefaultBox(); renderOverlay(); scheduleOutput(); } });
+        document.querySelectorAll('.rotBtn').forEach(b => b.addEventListener('click', () => {
+            if (!imageLoaded) return;
+            outputRotation = ((outputRotation + parseInt(b.dataset.rot)) % 360 + 360) % 360;
+            scheduleOutput();
+        }));
+
+        function scheduleAuto()   { clearTimeout(window._a); window._a = setTimeout(runAutoDetect, 60); }
+        function scheduleOutput() { clearTimeout(window._o); window._o = setTimeout(renderOutput, 30); }
+
+        function onOpenCvLoaded() {
+            cv['onRuntimeInitialized'] = () => {
+                isCvLoaded = true;
+                document.getElementById('loader').style.display = 'none';
+                setStatus("Engine Ready — upload a batch of photos", "text-red-600");
+            };
+        }
+
+        function setStatus(text, colorClass) {
+            statusText.textContent = text;
+            statusText.className = `text-sm font-semibold px-3 py-1.5 rounded-md ${colorClass} bg-opacity-10`;
+        }
+
+        // ---- batch queue ----------------------------------------------------
+        let queue = [];            // File[]
+        let qIndex = 0;            // current file index
+        const FACE_LABEL = ['Back', 'Front', 'Inside'];
+
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            queue = files; qIndex = 0;
+            document.getElementById('prevBtn').classList.remove('hidden');
+            document.getElementById('nextBtn').classList.remove('hidden');
+            document.getElementById('posText').classList.remove('hidden');
+            loadCurrent();
+        });
+
+        function updatePos() {
+            const face = FACE_LABEL[qIndex % 3];
+            document.getElementById('posText').textContent =
+                `Shot ${qIndex + 1} / ${queue.length} — ${face}`;
+            const last = qIndex >= queue.length - 1;
+            document.getElementById('nextBtn').classList.toggle('hidden', last);
+            document.getElementById('finishBtn').classList.toggle('hidden', !last);
+        }
+
+        function loadCurrent() {
+            const file = queue[qIndex];
+            if (!file) return;
+            setStatus('Loading image...', 'text-red-500');
+            updatePos();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const MAX_WIDTH = 1200;
+                    let width = img.width, height = img.height;
+                    if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; }
+                    sourceCanvas.width = width; sourceCanvas.height = height;
+                    sourceCanvas.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, width, height);
+                    imageLoaded = true;
+                    outputRotation = 0;
+                    if (isCvLoaded) runAutoDetect();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showToast(msg, ok) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'fixed bottom-5 right-5 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-semibold text-white ' +
+                (ok ? 'bg-red-700' : 'bg-red-900');
+            t.classList.remove('hidden');
+            clearTimeout(window._tt); window._tt = setTimeout(() => t.classList.add('hidden'), 4000);
+        }
+
+        function currentBlob() {
+            return new Promise(res => outputCanvas.toBlob(res, 'image/jpeg', 0.95));
+        }
+
+        async function postCurrentShot() {
+            const blob = await currentBlob();
+            if (!blob) throw new Error('no crop to save');
+            const fd = new FormData();
+            fd.append('image', blob, 'shot.jpg');
+            fd.append('dvd_index', Math.floor(qIndex / 3));
+            fd.append('slot', qIndex % 3);
+            const r = await fetch('/shot', { method: 'POST', body: fd });
+            if (!r.ok) throw new Error('server ' + r.status);
+            return r.json();
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', async () => {
+            try {
+                const res = await postCurrentShot();
+                if (res.status === 'saved') showToast(`Saved "${res.title}" (${res.files.length} files)`, true);
+            } catch (err) {
+                showToast('Save failed: ' + err.message + ' — click Save & Next to retry', false);
+                return;   // do NOT advance; keep the crop on screen
+            }
+            if (qIndex < queue.length - 1) { qIndex++; loadCurrent(); }
+        });
+
+        document.getElementById('finishBtn').addEventListener('click', async () => {
+            try {
+                const res = await postCurrentShot();           // save the last shot
+                if (res.status === 'saved') showToast(`Saved "${res.title}"`, true);
+                const f = await fetch('/finish', { method: 'POST' });
+                const fj = await f.json();
+                if (fj.status === 'saved') showToast(`Saved "${fj.title}" — batch complete`, true);
+                else showToast('Batch complete', true);
+            } catch (err) {
+                showToast('Finish failed: ' + err.message, false);
+            }
+        });
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (qIndex > 0) { qIndex--; loadCurrent(); }
+        });
+
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2;
+                this.beginPath(); this.moveTo(x + r, y);
+                this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+                this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r);
+                this.closePath(); return this;
+            };
+        }
+
+        // ---- corner helpers -------------------------------------------------
+        function setDefaultBox() {
+            const w = sourceCanvas.width, h = sourceCanvas.height;
+            const mx = w * 0.18, my = h * 0.18;
+            corners = [{x: mx, y: my}, {x: w - mx, y: my}, {x: w - mx, y: h - my}, {x: mx, y: h - my}];
+        }
+
+        // Order any 4 points clockwise starting at top-left -> [tl, tr, br, bl].
+        function orderCorners(pts) {
+            const cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
+            const cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+            const sorted = pts.slice().sort((a, b) =>
+                Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+            let si = 0, best = Infinity;
+            for (let i = 0; i < 4; i++) { const s = sorted[i].x + sorted[i].y; if (s < best) { best = s; si = i; } }
+            return [sorted[si], sorted[(si + 1) % 4], sorted[(si + 2) % 4], sorted[(si + 3) % 4]];
+        }
+
+        function rotatedRectCorners(rect) {
+            const cx = rect.center.x, cy = rect.center.y;
+            const w = rect.size.width, h = rect.size.height;
+            const a = rect.angle * Math.PI / 180.0, c = Math.cos(a), s = Math.sin(a);
+            const dx = [-w / 2, w / 2, w / 2, -w / 2], dy = [-h / 2, -h / 2, h / 2, h / 2];
+            const out = [];
+            for (let i = 0; i < 4; i++) out.push({ x: cx + dx[i] * c - dy[i] * s, y: cy + dx[i] * s + dy[i] * c });
+            return out;
+        }
+
+        // ---- auto detection -------------------------------------------------
+        function runAutoDetect() {
+            if (!isCvLoaded || !imageLoaded) return;
+            let src = cv.imread(sourceCanvas);
+            try {
+                const box = autoDetect(src);
+                if (box) { corners = box; setStatus("Auto-detected — drag to fine-tune", "text-red-700"); }
+                else {
+                    if (!corners) setDefaultBox();
+                    setStatus("No box found — drag the corners", "text-red-500");
+                }
+            } catch (err) { console.error(err); if (!corners) setDefaultBox(); }
+            finally { src.delete(); }
+            fitDisplay();
+            renderOverlay();
+            renderOutput();
+        }
+
+        function autoDetect(src) {
+            let gray = new cv.Mat(), blur = new cv.Mat(), edged = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+            cv.GaussianBlur(gray, blur, new cv.Size(7, 7), 0, 0, cv.BORDER_DEFAULT);
+            const cLow = parseInt(document.getElementById('cannyLow').value);
+            cv.Canny(blur, edged, cLow, cLow * 3, 3, false);
+
+            const dil = parseInt(document.getElementById('dilateSlider').value);
+            if (dil > 0) {
+                const k = cv.Mat.ones(3, 3, cv.CV_8U);
+                cv.dilate(edged, edged, k, new cv.Point(-1, -1), dil, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+                cv.erode(edged, edged, k, new cv.Point(-1, -1), Math.max(1, dil - 1), cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+                k.delete();
+            }
+            cv.imshow('debugCanvas', edged);
+
+            let contours = new cv.MatVector(), hier = new cv.Mat();
+            cv.findContours(edged, contours, hier, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+            const imgArea = src.cols * src.rows;
+            let bestBox = null, bestScore = 0;
+            for (let i = 0; i < contours.size(); i++) {
+                const c = contours.get(i);
+                const area = cv.contourArea(c);
+                // Reject specks and the whole-frame background contour.
+                if (area >= 0.06 * imgArea && area <= 0.92 * imgArea) {
+                    const rr = cv.minAreaRect(c);
+                    const rArea = rr.size.width * rr.size.height;
+                    const fill = rArea > 0 ? area / rArea : 0;     // 1.0 == perfect rectangle
+                    const score = fill * (area / imgArea);          // big AND rectangle-like wins
+                    if (fill > 0.55 && score > bestScore) { bestScore = score; bestBox = rotatedRectCorners(rr); }
+                }
+                c.delete();
+            }
+            gray.delete(); blur.delete(); edged.delete(); contours.delete(); hier.delete();
+            return bestBox;
+        }
+
+        // ---- display + overlay ---------------------------------------------
+        function fitDisplay() {
+            const sw = sourceCanvas.width, sh = sourceCanvas.height;
+            const maxW = 560;
+            displayScale = Math.min(1, maxW / sw);
+            displayCanvas.width = Math.round(sw * displayScale);
+            displayCanvas.height = Math.round(sh * displayScale);
+        }
+
+        function renderOverlay() {
+            if (!corners) return;
+            const ctx = displayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+            ctx.drawImage(sourceCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+
+            const pts = corners.map(p => ({ x: p.x * displayScale, y: p.y * displayScale }));
+            // shaded outside? keep simple: outline + handles
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ff3030';
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < 4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.closePath();
+            ctx.stroke();
+            for (const p of pts) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, HANDLE_R, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff3030';
+                ctx.fill();
+                ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+            }
+        }
+
+        function canvasPos(e) {
+            const r = displayCanvas.getBoundingClientRect();
+            const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+            const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+            // bounding-rect may be CSS-scaled vs the canvas backing store
+            return { x: cx * (displayCanvas.width / r.width), y: cy * (displayCanvas.height / r.height) };
+        }
+
+        function pickHandle(pos) {
+            let idx = -1, best = GRAB_R;
+            for (let i = 0; i < 4; i++) {
+                const dx = corners[i].x * displayScale - pos.x;
+                const dy = corners[i].y * displayScale - pos.y;
+                const d = Math.hypot(dx, dy);
+                if (d < best) { best = d; idx = i; }
+            }
+            return idx;
+        }
+
+        function startDrag(e) {
+            if (!corners) return;
+            const pos = canvasPos(e);
+            dragIndex = pickHandle(pos);
+            if (dragIndex >= 0) { e.preventDefault(); moveDrag(e); }
+        }
+        function moveDrag(e) {
+            if (dragIndex < 0) return;
+            e.preventDefault();
+            const pos = canvasPos(e);
+            const x = Math.max(0, Math.min(sourceCanvas.width, pos.x / displayScale));
+            const y = Math.max(0, Math.min(sourceCanvas.height, pos.y / displayScale));
+            corners[dragIndex] = { x, y };
+            renderOverlay();
+            scheduleOutput();
+        }
+        function endDrag() { dragIndex = -1; }
+
+        displayCanvas.addEventListener('mousedown', startDrag);
+        window.addEventListener('mousemove', moveDrag);
+        window.addEventListener('mouseup', endDrag);
+        displayCanvas.addEventListener('touchstart', startDrag, { passive: false });
+        window.addEventListener('touchmove', moveDrag, { passive: false });
+        window.addEventListener('touchend', endDrag);
+
+        // ---- warp + studio finish ------------------------------------------
+        function renderOutput() {
+            if (!isCvLoaded || !imageLoaded || !corners) return;
+            let src = cv.imread(sourceCanvas);
+            let srcTri = null, dstTri = null, M = null, warped = null;
+            try {
+                const o = orderCorners(corners);   // [tl, tr, br, bl]
+                const tl = o[0], tr = o[1], br = o[2], bl = o[3];
+
+                const wA = Math.hypot(br.x - bl.x, br.y - bl.y);
+                const wB = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+                const hA = Math.hypot(tr.x - br.x, tr.y - br.y);
+                const hB = Math.hypot(tl.x - bl.x, tl.y - bl.y);
+                let maxW = Math.max(1, Math.round(Math.max(wA, wB)));
+                let maxH = Math.max(1, Math.round(Math.max(hA, hB)));
+
+                srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+                dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, maxW - 1, 0, maxW - 1, maxH - 1, 0, maxH - 1]);
+                M = cv.getPerspectiveTransform(srcTri, dstTri);
+                warped = new cv.Mat();
+                cv.warpPerspective(src, warped, M, new cv.Size(maxW, maxH));
+                cv.cvtColor(warped, warped, cv.COLOR_RGBA2RGB);
+
+                if (outputRotation === 90) cv.rotate(warped, warped, cv.ROTATE_90_CLOCKWISE);
+                else if (outputRotation === 180) cv.rotate(warped, warped, cv.ROTATE_180);
+                else if (outputRotation === 270) cv.rotate(warped, warped, cv.ROTATE_90_COUNTERCLOCKWISE);
+
+                studioFinish(warped);
+                if (statusText.textContent.indexOf('drag') === -1) setStatus("Studio Blend Complete", "text-red-700");
+            } catch (err) {
+                console.error(err);
+                setStatus("Error processing", "text-red-600");
+            } finally {
+                if (srcTri) srcTri.delete();
+                if (dstTri) dstTri.delete();
+                if (M) M.delete();
+                if (warped) warped.delete();
+                src.delete();
+            }
+        }
+
+        function studioFinish(warped) {
+            const warpCanvas = document.createElement('canvas');
+            cv.imshow(warpCanvas, warped);
+
+            const padding = parseInt(document.getElementById('paddingSlider').value);
+            const shavePx = parseInt(document.getElementById('shaveSlider').value);
+            const cornerRadius = parseInt(document.getElementById('radiusSlider').value);
+            const blurPx = parseInt(document.getElementById('blurSlider').value);
+            const isSquare = document.getElementById('squareOutput').checked;
+
+            let canvasW = warped.cols + padding * 2;
+            let canvasH = warped.rows + padding * 2;
+            let offsetX = padding, offsetY = padding;
+            if (isSquare) {
+                const maxDim = Math.max(warped.cols, warped.rows);
+                canvasW = maxDim + padding * 2;
+                canvasH = maxDim + padding * 2;
+                offsetX = (canvasW - warped.cols) / 2;
+                offsetY = (canvasH - warped.rows) / 2;
+            }
+
+            outputCanvas.width = canvasW;
+            outputCanvas.height = canvasH;
+            const outCtx = outputCanvas.getContext('2d');
+            outCtx.fillStyle = '#ffffff';
+            outCtx.fillRect(0, 0, canvasW, canvasH);
+
+            const blend = document.createElement('canvas');
+            blend.width = canvasW; blend.height = canvasH;
+            const bctx = blend.getContext('2d');
+
+            const maskX = offsetX + shavePx, maskY = offsetY + shavePx;
+            const maskW = warped.cols - 2 * shavePx, maskH = warped.rows - 2 * shavePx;
+
+            bctx.filter = `blur(${blurPx}px)`;
+            bctx.fillStyle = 'black';
+            bctx.roundRect(maskX, maskY, Math.max(1, maskW), Math.max(1, maskH), cornerRadius);
+            bctx.fill();
+            bctx.filter = 'none';
+            bctx.globalCompositeOperation = 'source-in';
+            bctx.drawImage(warpCanvas, offsetX, offsetY);
+
+            outCtx.drawImage(blend, 0, 0);
+        }
+    </script>
+</body>
+</html>
