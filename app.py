@@ -34,6 +34,17 @@ GEMINI_BASE = "https://generativelanguage.googleapis.com"
 GEMINI_API_VERSION = os.environ.get("GEMINI_API_VERSION", "v1beta")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
+# --- LISTING IMAGE OUTPUT ---
+# Final eBay photos are square, white-background cutouts. 1000x1000 is eBay's
+# recommended minimum for the zoom feature. Background is removed with rembg
+# (isnet-general-use); if rembg/onnxruntime aren't installed the code falls back
+# to GrabCut, then to a plain edge crop — either way you still get a centred
+# white square at LISTING_SIZE.
+LISTING_SIZE = int(os.environ.get("LISTING_SIZE", "1000"))
+LISTING_MARGIN = float(os.environ.get("LISTING_MARGIN", "0.06"))
+REMBG_MODEL = os.environ.get("REMBG_MODEL", "isnet-general-use")
+_REMBG_SESSION = None
+
 # --- CONFIGURATION ---
 INPUT_DIR = Path("Images in")
 OUTPUT_DIR = Path("processed")
@@ -119,6 +130,145 @@ def enhance_image(img):
     l, a, b = cv2.split(lab)
     cl = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)).apply(l)
     return cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
+
+# --- BACKGROUND REMOVAL + SQUARE WHITE CANVAS ---
+def _feather_alpha(alpha, px=1):
+    """Soften a hard alpha edge so the cutout doesn't look cut with scissors."""
+    if px <= 0:
+        return alpha
+    k = int(px) * 2 + 1
+    return cv2.GaussianBlur(alpha, (k, k), 0)
+
+def _largest_component(alpha):
+    """Keep only the biggest blob — drops stray specks rembg sometimes leaves."""
+    mask = (alpha > 20).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    if n <= 2:  # background + at most one object
+        return alpha
+    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return np.where(labels == biggest, alpha, 0).astype(np.uint8)
+
+def _get_rembg_session():
+    """Lazily build (and cache) the rembg session. Downloads the model once."""
+    global _REMBG_SESSION
+    if _REMBG_SESSION is None:
+        from rembg import new_session
+        print(f"      [i] Loading rembg model '{REMBG_MODEL}' (first run downloads it)...")
+        _REMBG_SESSION = new_session(REMBG_MODEL)
+    return _REMBG_SESSION
+
+def _grabcut_alpha(bgr):
+    """Classic fallback matte: GrabCut seeded by a rect just inside the frame."""
+    h, w = bgr.shape[:2]
+    if h < 20 or w < 20:
+        return None
+    mask = np.zeros((h, w), np.uint8)
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    ix, iy = max(2, w // 12), max(2, h // 12)
+    rect = (ix, iy, w - 2 * ix, h - 2 * iy)
+    try:
+        cv2.grabCut(bgr, mask, rect, bgd, fgd, 5, cv2.GC_INIT_WITH_RECT)
+    except cv2.error:
+        return None
+    alpha = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0)
+    return alpha.astype(np.uint8)
+
+def remove_background(bgr):
+    """Return a BGRA cutout of the DVD (alpha = foreground), or None if matting
+    is unavailable. Tries rembg first, then GrabCut."""
+    try:
+        from rembg import remove
+        pil = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        rgba = np.asarray(remove(pil, session=_get_rembg_session()).convert("RGBA"))
+        alpha = rgba[:, :, 3]
+        if 0.02 <= float((alpha > 20).mean()) <= 0.99:
+            return cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+        print("      [i] rembg matte looked implausible; trying GrabCut.")
+    except Exception as e:
+        print(f"      [i] rembg unavailable ({e}); trying GrabCut.")
+    try:
+        alpha = _grabcut_alpha(bgr)
+        if alpha is not None and 0.02 <= float((alpha > 20).mean()) <= 0.99:
+            return np.dstack([bgr, alpha])
+    except Exception:
+        pass
+    return None
+
+def _deskew_bgra(bgra):
+    """Rotate the cutout so the DVD's long edges are axis-aligned (straighten).
+
+    Only the small in-plane tilt is corrected here; 90/180/270 flips are left to
+    Gemini's rotation_cw so the artwork ends up genuinely upright.
+    """
+    alpha = bgra[:, :, 3]
+    cnts, _ = cv2.findContours((alpha > 20).astype(np.uint8),
+                               cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return bgra
+    (_, _), (_, _), angle = cv2.minAreaRect(max(cnts, key=cv2.contourArea))
+    if angle < -45:
+        angle += 90
+    elif angle > 45:
+        angle -= 90
+    if abs(angle) < 0.5:
+        return bgra
+    h, w = alpha.shape
+    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle, 1.0)
+    cos, sin = abs(M[0, 0]), abs(M[0, 1])
+    nW, nH = int(h * sin + w * cos), int(h * cos + w * sin)
+    M[0, 2] += nW / 2.0 - w / 2.0
+    M[1, 2] += nH / 2.0 - h / 2.0
+    return cv2.warpAffine(bgra, M, (nW, nH), flags=cv2.INTER_LINEAR,
+                          borderValue=(0, 0, 0, 0))
+
+def _paste_centered(fg_bgr, alpha, size, margin):
+    """Scale (fg, alpha) to fit a `size` square with `margin`, blend onto white."""
+    h, w = alpha.shape
+    inner = max(1, int(size * (1.0 - 2.0 * margin)))
+    scale = min(inner / float(w), inner / float(h))
+    nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
+    fg = cv2.resize(fg_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+    a = _feather_alpha(cv2.resize(alpha, (nw, nh), interpolation=cv2.INTER_AREA), 1)
+    canvas = np.full((size, size, 3), 255, np.uint8)  # pure white
+    ox, oy = (size - nw) // 2, (size - nh) // 2
+    af = (a.astype(np.float32) / 255.0)[..., None]
+    roi = canvas[oy:oy + nh, ox:ox + nw].astype(np.float32)
+    blended = fg.astype(np.float32) * af + roi * (1.0 - af)
+    canvas[oy:oy + nh, ox:ox + nw] = np.clip(blended, 0, 255).astype(np.uint8)
+    return canvas
+
+def _pad_to_square(bgr, size, margin):
+    """No-alpha fallback: fit the whole crop, centred, on a white square."""
+    h, w = bgr.shape[:2]
+    inner = max(1, int(size * (1.0 - 2.0 * margin)))
+    scale = min(inner / float(w), inner / float(h))
+    nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
+    r = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+    canvas = np.full((size, size, 3), 255, np.uint8)
+    ox, oy = (size - nw) // 2, (size - nh) // 2
+    canvas[oy:oy + nh, ox:ox + nw] = r
+    return canvas
+
+def prepare_listing_image(bgr, size=None, margin=None):
+    """Raw photo -> straightened, background-removed cutout centred on a white
+    `size` x `size` canvas. Falls back to the edge crop if matting is unavailable."""
+    size = size or LISTING_SIZE
+    margin = LISTING_MARGIN if margin is None else margin
+
+    bgra = remove_background(bgr)
+    if bgra is None:
+        print("      [i] No background matte; using edge-crop fallback.")
+        return _pad_to_square(robust_crop(bgr), size, margin)
+
+    bgra = _deskew_bgra(bgra)
+    alpha = _largest_component(bgra[:, :, 3])
+    ys, xs = np.where(alpha > 20)
+    if not (xs.size and ys.size):
+        return _pad_to_square(robust_crop(bgr), size, margin)
+    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    fg = enhance_image(bgra[y0:y1, x0:x1, :3])  # gentle pop on the artwork only
+    return _paste_centered(fg, alpha[y0:y1, x0:x1], size, margin)
 
 # --- GEMINI AI PIPELINE ---
 def _gemini_url(action, model=None):
@@ -247,21 +397,20 @@ def process_all_images():
         dvd_data = {"id": i, "photos": [], "title": "Unknown DVD", "barcode": "", "description": "", "genre": "", "year": 0, "studio": ""}
 
         for file in group_files:
-            print(f"  -> Cropping & Enhancing: {file.name}")
+            print(f"  -> Cutout + straighten + {LISTING_SIZE}px white square: {file.name}")
             img = load_image(file)
-            cropped = robust_crop(img)
+            square = prepare_listing_image(img, LISTING_SIZE)
 
             print(f"  -> Gemini Analysis...")
-            meta = analyze_with_gemini(cropped)
+            meta = analyze_with_gemini(square)
 
-            # Apply Gemini's intelligent orientation fix
+            # Apply Gemini's intelligent orientation fix (square stays square)
             rot = meta.get("rotation_cw", 0)
-            if rot == 90: cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
-            elif rot == 180: cropped = cv2.rotate(cropped, cv2.ROTATE_180)
-            elif rot == 270: cropped = cv2.rotate(cropped, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            if rot == 90: square = cv2.rotate(square, cv2.ROTATE_90_CLOCKWISE)
+            elif rot == 180: square = cv2.rotate(square, cv2.ROTATE_180)
+            elif rot == 270: square = cv2.rotate(square, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-            # Final Contrast Pop
-            final_img = enhance_image(cropped)
+            final_img = square  # already a contrast-popped white-bg cutout
 
             out_name = f"{file.stem}_work.jpg"
             cv2.imwrite(str(WORK_DIR / out_name), final_img, [cv2.IMWRITE_JPEG_QUALITY, 90])

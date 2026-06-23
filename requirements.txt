@@ -4,6 +4,8 @@ rawpy
 pillow
 pillow-heif
 pyzbar
+rembg
+onnxruntime
 requests
 fastapi
 uvicorn[standard]
