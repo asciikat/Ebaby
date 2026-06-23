@@ -4,10 +4,13 @@ rawpy
 pillow
 pillow-heif
 pyzbar
+rembg
+onnxruntime
 requests
 fastapi
 uvicorn[standard]
 jinja2
 python-multipart
+python-dotenv
 pytest
 httpx
