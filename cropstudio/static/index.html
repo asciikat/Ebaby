@@ -270,6 +270,7 @@
                     sourceCanvas.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, width, height);
                     imageLoaded = true;
                     outputRotation = 0;
+                    corners = null;              // new image: drop the previous quad
                     if (isCvLoaded) runAutoDetect();
                 };
                 img.src = event.target.result;
