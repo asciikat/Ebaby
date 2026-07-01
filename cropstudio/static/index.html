@@ -303,7 +303,38 @@
             return r.json();
         }
 
+        function contentFraction() {
+            // Non-white-row span / canvas height on the final composited
+            // square. This is the exact measurement used to diagnose a
+            // mis-cropped shot in production: a bad crop shows up as mostly
+            // white padding with a thin band of real content in the middle
+            // (measured range across a real 60-shot batch was 0.5-0.95 for
+            // every good shot; the one bad DVD measured 0.20 and 0.27).
+            const w = outputCanvas.width, h = outputCanvas.height;
+            if (w === 0 || h === 0) return 1;
+            const ctx = outputCanvas.getContext('2d');
+            const data = ctx.getImageData(0, 0, w, h).data;
+            let minRow = -1, maxRow = -1;
+            for (let y = 0; y < h; y++) {
+                let hasContent = false;
+                for (let x = 0; x < w; x += 4) {   // sample every 4th pixel column
+                    const i = (y * w + x) * 4;
+                    if (data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245) { hasContent = true; break; }
+                }
+                if (hasContent) { if (minRow < 0) minRow = y; maxRow = y; }
+            }
+            if (minRow < 0) return 0;
+            return (maxRow - minRow + 1) / h;
+        }
+
+        const MIN_CONTENT_FRACTION = 0.4;
+
         document.getElementById('nextBtn').addEventListener('click', async () => {
+            const frac = contentFraction();
+            if (frac < MIN_CONTENT_FRACTION) {
+                showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
+                return;   // do NOT save or advance
+            }
             try {
                 const res = await postCurrentShot();
                 if (res.status === 'saved') showToast(`Saved "${res.title}" (${res.files.length} files)`, true);
@@ -315,6 +346,11 @@
         });
 
         document.getElementById('finishBtn').addEventListener('click', async () => {
+            const frac = contentFraction();
+            if (frac < MIN_CONTENT_FRACTION) {
+                showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
+                return;
+            }
             try {
                 const res = await postCurrentShot();           // save the last shot
                 if (res.status === 'saved') showToast(`Saved "${res.title}"`, true);
@@ -370,6 +406,11 @@
         }
 
         // ---- auto detection -------------------------------------------------
+        // Which face (0=Back,1=Front,2=Inside) is currently loaded. Task 8
+        // replaces the body of this with real client-side DVD/slot counters;
+        // for now it mirrors the existing fixed-stride assumption.
+        function currentDvdSlot() { return qIndex % 3; }
+
         function runAutoDetect() {
             if (!isCvLoaded || !imageLoaded) return;
             let src = cv.imread(sourceCanvas);
@@ -407,6 +448,14 @@
             cv.findContours(edged, contours, hier, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
             const imgArea = src.cols * src.rows;
+            // Front/Back covers have a known aspect ratio (redboxflip.scan's
+            // proven DVD-case ratio). Penalizing boxes that deviate from it
+            // stops a spurious thin high-contrast band (e.g. a glare or
+            // reflection edge) from out-scoring the true case boundary just
+            // by being a cleaner rectangle. Inside shots (slot 2) vary too
+            // much in aspect to apply this prior.
+            const DVD_COVER_RATIO = 0.711;
+            const currentSlot = currentDvdSlot();
             let bestBox = null, bestScore = 0;
             for (let i = 0; i < contours.size(); i++) {
                 const c = contours.get(i);
@@ -416,7 +465,13 @@
                     const rr = cv.minAreaRect(c);
                     const rArea = rr.size.width * rr.size.height;
                     const fill = rArea > 0 ? area / rArea : 0;     // 1.0 == perfect rectangle
-                    const score = fill * (area / imgArea);          // big AND rectangle-like wins
+                    let score = fill * (area / imgArea);            // big AND rectangle-like wins
+                    if (currentSlot !== 2 && rr.size.width > 0 && rr.size.height > 0) {
+                        const boxRatio = Math.min(rr.size.width, rr.size.height) /
+                                         Math.max(rr.size.width, rr.size.height);
+                        const deviation = Math.abs(boxRatio - DVD_COVER_RATIO) / DVD_COVER_RATIO;
+                        score *= Math.max(0.15, 1 - deviation);
+                    }
                     if (fill > 0.55 && score > bestScore) { bestScore = score; bestBox = rotatedRectCorners(rr); }
                 }
                 c.delete();
