@@ -3,6 +3,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from cropstudio.app import create_app
+from cropstudio import manifest
 import cropstudio.service as service
 
 
@@ -61,3 +62,14 @@ def test_index_served(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.get("/")
     assert r.status_code == 200 and "Ebaby" in r.text
+
+
+def test_saving_a_dvd_appends_a_manifest_entry(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, title="Goober")
+    _post(c, 0, 0, _jpeg())
+    _post(c, 0, 1, _jpeg())
+    _post(c, 0, 2, _jpeg())
+    entries = manifest.load(tmp_path)
+    assert len(entries) == 1
+    assert entries[0]["title"] == "Goober"
+    assert entries[0]["used_stock"] is True

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from redboxflip import vlm
 from redboxflip.config import load_settings
 
-from . import batch, paths, service
+from . import batch, manifest, paths, service
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -21,7 +21,18 @@ def create_app(run_dir=None, settings=None):
 
     def _flush(req):
         counter["n"] += 1
-        return service.save_dvd(req.shots, run_dir, settings, counter["n"])
+        result = service.save_dvd(req.shots, run_dir, settings, counter["n"])
+        manifest.append(run_dir, {
+            "dvd_number": counter["n"],
+            "title": result["title"],
+            "title_source": result["title_source"],
+            "barcode": result["barcode"],
+            "new_stock": result["new_stock"],
+            "used_stock": result["used_stock"],
+            "mismatch_warning": result.get("mismatch_warning", False),
+            "files": result["files"],
+        })
+        return result
 
     @app.get("/", response_class=HTMLResponse)
     def index():
