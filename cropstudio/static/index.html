@@ -47,6 +47,7 @@
                     <button id="prevBtn" class="bg-white border border-red-200 hover:bg-red-50 text-red-800 px-4 py-2.5 rounded-lg font-semibold hidden">‹ Prev</button>
                     <button id="nextBtn" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm hidden">Save &amp; Next ›</button>
                     <button id="finishBtn" class="bg-red-900 hover:bg-red-950 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm hidden">Finish batch</button>
+                    <button id="finishDvdBtn" class="bg-red-800 hover:bg-red-900 text-white px-5 py-2.5 rounded-lg font-semibold shadow-sm hidden">Finish DVD (2 shots only)</button>
                     <span id="posText" class="text-sm font-bold text-red-700 bg-red-50 px-3 py-1.5 rounded-md border border-red-100 hidden">—</span>
                     <span id="statusText" class="text-sm font-semibold text-red-400 bg-red-50 px-3 py-1.5 rounded-md border border-red-100">Waiting...</span>
                 </div>
@@ -232,13 +233,16 @@
 
         // ---- batch queue ----------------------------------------------------
         let queue = [];            // File[]
-        let qIndex = 0;            // current file index
+        let qIndex = 0;            // current file index (position in the upload queue)
+        let currentDvdIndex = 0;   // which DVD is being built (increments on Save&Next-past-slot-2 or Finish DVD)
+        let currentSlot = 0;       // 0=Back, 1=Front, 2=Inside — NOT derived from qIndex, so a
+                                   // 2-shot new/sealed DVD doesn't misalign every DVD after it
         const FACE_LABEL = ['Back', 'Front', 'Inside'];
 
         document.getElementById('imageInput').addEventListener('change', (e) => {
             const files = Array.from(e.target.files || []);
             if (!files.length) return;
-            queue = files; qIndex = 0;
+            queue = files; qIndex = 0; currentDvdIndex = 0; currentSlot = 0;
             document.getElementById('prevBtn').classList.remove('hidden');
             document.getElementById('nextBtn').classList.remove('hidden');
             document.getElementById('posText').classList.remove('hidden');
@@ -246,12 +250,15 @@
         });
 
         function updatePos() {
-            const face = FACE_LABEL[qIndex % 3];
+            const face = FACE_LABEL[currentSlot];
             document.getElementById('posText').textContent =
                 `Shot ${qIndex + 1} / ${queue.length} — ${face}`;
             const last = qIndex >= queue.length - 1;
             document.getElementById('nextBtn').classList.toggle('hidden', last);
             document.getElementById('finishBtn').classList.toggle('hidden', !last);
+            // Only offer the 2-shot finish while viewing the Front shot (slot 1) —
+            // that's exactly the "Back+Front, no Inside" new/sealed case.
+            document.getElementById('finishDvdBtn').classList.toggle('hidden', last || currentSlot !== 1);
         }
 
         function loadCurrent() {
@@ -296,8 +303,8 @@
             if (!blob) throw new Error('no crop to save');
             const fd = new FormData();
             fd.append('image', blob, 'shot.jpg');
-            fd.append('dvd_index', Math.floor(qIndex / 3));
-            fd.append('slot', qIndex % 3);
+            fd.append('dvd_index', currentDvdIndex);
+            fd.append('slot', currentSlot);
             const r = await fetch('/shot', { method: 'POST', body: fd });
             if (!r.ok) throw new Error('server ' + r.status);
             return r.json();
@@ -342,6 +349,28 @@
                 showToast('Save failed: ' + err.message + ' — click Save & Next to retry', false);
                 return;   // do NOT advance; keep the crop on screen
             }
+            if (currentSlot === 2) { currentSlot = 0; currentDvdIndex++; }
+            else { currentSlot++; }
+            if (qIndex < queue.length - 1) { qIndex++; loadCurrent(); }
+        });
+
+        document.getElementById('finishDvdBtn').addEventListener('click', async () => {
+            const frac = contentFraction();
+            if (frac < MIN_CONTENT_FRACTION) {
+                showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
+                return;
+            }
+            try {
+                const res = await postCurrentShot();          // saves Front (slot 1) into the 2-shot buffer
+                const f = await fetch('/finish', { method: 'POST' });
+                const fj = await f.json();
+                if (fj.status === 'saved') showToast(`Saved "${fj.title}" (new/sealed, ${fj.files.length} files)`, true);
+                else showToast('Nothing to finish', false);
+            } catch (err) {
+                showToast('Finish DVD failed: ' + err.message, false);
+                return;
+            }
+            currentSlot = 0; currentDvdIndex++;
             if (qIndex < queue.length - 1) { qIndex++; loadCurrent(); }
         });
 
@@ -406,10 +435,8 @@
         }
 
         // ---- auto detection -------------------------------------------------
-        // Which face (0=Back,1=Front,2=Inside) is currently loaded. Task 8
-        // replaces the body of this with real client-side DVD/slot counters;
-        // for now it mirrors the existing fixed-stride assumption.
-        function currentDvdSlot() { return qIndex % 3; }
+        // Which face (0=Back,1=Front,2=Inside) is currently loaded.
+        function currentDvdSlot() { return currentSlot; }
 
         function runAutoDetect() {
             if (!isCvLoaded || !imageLoaded) return;
