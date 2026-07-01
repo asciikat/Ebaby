@@ -8,3 +8,4 @@ _sample_unzip/
 Images in/
 *.dng
 !samples/*.dng
+.env
