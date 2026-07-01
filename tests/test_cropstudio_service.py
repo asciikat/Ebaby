@@ -13,15 +13,17 @@ def _jpeg(color):
     return buf.tobytes()
 
 
-def test_save_dvd_names_from_front_and_writes_three(tmp_path):
+def test_save_dvd_names_from_front_and_writes_three_flat(tmp_path):
     shots = {0: _jpeg((10, 10, 10)), 1: _jpeg((20, 20, 20)), 2: _jpeg((30, 30, 30))}
     out = service.save_dvd(shots, tmp_path, settings=None, dvd_counter=1,
                            reader=lambda bgr, s: "Goober And The Ghost Chasers")
     assert out["title"] == "Goober And The Ghost Chasers"
-    d = tmp_path / "Goober And The Ghost Chasers"
-    assert (d / "Goober And The Ghost Chasers - Back Cover.jpg").exists()
-    assert (d / "Goober And The Ghost Chasers - Front Cover.jpg").exists()
-    assert (d / "Goober And The Ghost Chasers - Inside.jpg").exists()
+    assert out["dir"] == str(tmp_path)          # no per-DVD subfolder
+    assert (tmp_path / "Goober And The Ghost Chasers - Back Cover.jpg").exists()
+    assert (tmp_path / "Goober And The Ghost Chasers - Front Cover.jpg").exists()
+    assert (tmp_path / "Goober And The Ghost Chasers - Inside.jpg").exists()
+    assert out["used_stock"] is True
+    assert out["new_stock"] is False
 
 
 def test_save_dvd_falls_back_when_reader_returns_none(tmp_path):
@@ -29,21 +31,24 @@ def test_save_dvd_falls_back_when_reader_returns_none(tmp_path):
     out = service.save_dvd(shots, tmp_path, settings=None, dvd_counter=2,
                            reader=lambda bgr, s: None)
     assert out["title"] == "Untitled DVD 2"
-    assert (tmp_path / "Untitled DVD 2" / "Untitled DVD 2 - Front Cover.jpg").exists()
+    assert (tmp_path / "Untitled DVD 2 - Front Cover.jpg").exists()
 
 
-def test_save_dvd_uniquifies_duplicate_title(tmp_path):
+def test_save_dvd_uniquifies_duplicate_title_by_filename(tmp_path):
     shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2)), 2: _jpeg((3, 3, 3))}
     r = lambda bgr, s: "Heat"
     service.save_dvd(shots, tmp_path, None, 1, reader=r)
     out2 = service.save_dvd(shots, tmp_path, None, 2, reader=r)
-    assert out2["dir"].endswith("Heat (2)")
+    assert out2["title"] == "Heat (2)"
+    assert (tmp_path / "Heat (2) - Back Cover.jpg").exists()
+    assert (tmp_path / "Heat - Back Cover.jpg").exists()   # first one untouched
 
 
-def test_partial_dvd_uses_back_when_no_front(tmp_path):
+def test_partial_dvd_uses_back_when_no_front_flat(tmp_path):
     shots = {0: _jpeg((1, 1, 1))}        # only Back
     out = service.save_dvd(shots, tmp_path, None, 1, reader=lambda bgr, s: "Solo")
-    assert (tmp_path / "Solo" / "Solo - Back Cover.jpg").exists()
+    assert (tmp_path / "Solo - Back Cover.jpg").exists()
+    assert out["new_stock"] is True    # 1 shot counts as new/sealed (< 3), matches 2-shot rule
 
 
 def test_ensure_decodable_rejects_junk():

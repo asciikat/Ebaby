@@ -37,7 +37,8 @@ def test_three_shots_save_a_dvd(tmp_path, monkeypatch):
     assert _post(c, 0, 1, _jpeg()).json()["status"] == "buffered"
     r = _post(c, 0, 2, _jpeg()).json()
     assert r["status"] == "saved" and r["title"] == "Goober"
-    assert (tmp_path / "Goober" / "Goober - Inside.jpg").exists()
+    assert (tmp_path / "Goober - Inside.jpg").exists()
+    assert r["used_stock"] is True
 
 
 def test_finish_flushes_partial(tmp_path, monkeypatch):
@@ -46,7 +47,8 @@ def test_finish_flushes_partial(tmp_path, monkeypatch):
     _post(c, 0, 1, _jpeg())
     r = c.post("/finish").json()
     assert r["status"] == "saved"
-    assert (tmp_path / "Solo" / "Solo - Front Cover.jpg").exists()
+    assert (tmp_path / "Solo - Front Cover.jpg").exists()
+    assert r["new_stock"] is True
 
 
 def test_bad_image_is_rejected(tmp_path, monkeypatch):

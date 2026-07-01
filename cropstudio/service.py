@@ -3,6 +3,8 @@
 Reuses redboxflip's title reader (Qwen), filename builder, and JPEG saver so the
 output is identical to the main pipeline's per-DVD folders.
 """
+from pathlib import Path
+
 import cv2
 import numpy as np
 from PIL import Image
@@ -87,42 +89,46 @@ def resolve_identity(shots: dict, settings, ebay_config=None,
     return result
 
 
-def resolve_title(shots: dict, settings, reader=None) -> str:
-    """Read the DVD title from Front (slot 1), else Back (0), else Inside (2).
-
-    `reader(bgr, settings) -> str|None` is injectable for tests. By default uses
-    Qwen via redboxflip.vlm, but only when it is reachable.
-    """
-    if reader is None:
-        if not vlm.available():
-            return ""
-        reader = vlm.title_from_cover
-    for slot in (1, 0, 2):
-        if slot in shots:
-            _, bgr = _decode(shots[slot])
-            t = reader(bgr, settings)
-            return titles.clean_title(t) if t else ""
-    return ""
-
-
-def _unique_dir(parent, stem):
-    cand = parent / stem
+def _unique_title(run_dir, title, faces) -> str:
+    """A variant of `title` whose output filenames don't already exist
+    directly under run_dir (flat layout — no per-DVD subfolder)."""
+    candidate = title
     n = 2
-    while cand.exists():
-        cand = parent / f"{stem} ({n})"
+    while any((run_dir / naming.output_filename(candidate, face)).exists()
+              for face in faces):
+        candidate = f"{title} ({n})"
         n += 1
-    return cand
+    return candidate
 
 
 def save_dvd(shots: dict, run_dir, settings, dvd_counter: int,
-             reader=None, quality: int = 92) -> dict:
-    """Write one DVD's shots. Returns {title, dir, files}."""
-    title = resolve_title(shots, settings, reader) or f"Untitled DVD {dvd_counter}"
-    dvd_dir = _unique_dir(run_dir, naming.safe_stem(title))
+             reader=None, ebay_config=None, barcode_decoder=None,
+             ebay_client=None, quality: int = 92) -> dict:
+    """Write one DVD's shots flat into run_dir. Returns
+    {title, dir, files, title_source, barcode, new_stock, used_stock,
+    mismatch_warning}."""
+    run_dir = Path(run_dir)
+    identity = resolve_identity(shots, settings, ebay_config=ebay_config,
+                                barcode_decoder=barcode_decoder,
+                                ebay_client=ebay_client, qwen_reader=reader)
+    title = identity["title"] or f"Untitled DVD {dvd_counter}"
+    faces_present = [FACE_ORDER[slot] for slot in sorted(shots.keys())]
+    unique_title = _unique_title(run_dir, title, faces_present)
+
     files = []
     for slot, data in sorted(shots.items()):
         pil, _ = _decode(data)
-        out = dvd_dir / naming.output_filename(title, FACE_ORDER[slot])
+        out = run_dir / naming.output_filename(unique_title, FACE_ORDER[slot])
         save_jpeg(pil, out, quality)
         files.append(out.name)
-    return {"title": title, "dir": str(dvd_dir), "files": files}
+
+    return {
+        "title": unique_title,
+        "dir": str(run_dir),
+        "files": files,
+        "title_source": identity["title_source"],
+        "barcode": identity["barcode"],
+        "new_stock": len(shots) < 3,
+        "used_stock": len(shots) >= 3,
+        "mismatch_warning": identity.get("mismatch_warning", False),
+    }
