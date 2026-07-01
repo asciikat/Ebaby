@@ -135,12 +135,18 @@ def _compose_fallback(path, bgr, face, settings, manual_quad, extra_rotation, t0
     rgba, cut_method = cutout.make_cutout(
         bgr, quad, settings.cutout_engine, settings.feather_px,
         rembg_model=settings.rembg_model, sam_checkpoint=settings.sam_checkpoint)
-    rgba = clean.erase_red_to_white(rgba)
 
     ocr_title = _front_title(bgr, None, settings) if face == Face.FRONT else None
 
-    rgba, rot = clean.auto_upright(rgba, face)
-    rot = (rot + extra_rotation) % 360
+    # Exact manual crop is WYSIWYG: keep precisely what the user selected and
+    # only the rotation they asked for — no red-erase, no auto-flip second-guess.
+    exact = cut_method == "exact"
+    if exact:
+        rot = extra_rotation % 360
+    else:
+        rgba = clean.erase_red_to_white(rgba)
+        rgba, rot = clean.auto_upright(rgba, face)
+        rot = (rot + extra_rotation) % 360
     if extra_rotation:
         for _ in range((extra_rotation // 90) % 4):
             rgba = np.ascontiguousarray(np.rot90(rgba, k=-1))
@@ -196,6 +202,17 @@ def _make_run_dir(output_dir):
     return run
 
 
+def _unique_dir(run_dir, stem):
+    """A DVD folder that never collides: two same-titled DVDs would otherwise
+    write to one folder and overwrite each other's photos."""
+    candidate = run_dir / stem
+    n = 2
+    while candidate.exists():
+        candidate = run_dir / f"{stem} ({n})"
+        n += 1
+    return candidate
+
+
 def _read_title(front_upright_bgr, composed, scan_data, settings, gi):
     """Best DVD title: dedicated Qwen title reader -> scan -> front OCR -> fallback.
 
@@ -218,7 +235,7 @@ def _read_title(front_upright_bgr, composed, scan_data, settings, gi):
 
 
 def _process_chunk(chunk, settings, gi, progress_cb, done, total):
-    """Scan, classify, compose, extract fields, and barcode for one DVD."""
+    """Scan, classify, compose, and read title for one DVD (title-only mode)."""
     scans, bgrs = {}, {}
     for path in chunk:
         bgrs[path] = load_image_bgr(path)
@@ -228,36 +245,22 @@ def _process_chunk(chunk, settings, gi, progress_cb, done, total):
             scans[path] = None
     faces = _assign_faces_from_scans(scans, chunk)
 
-    use_extract = settings.qwen_extract and vlm.available()
     composed = {}          # Face -> (PIL, ShotResult)
-    per_face_raw = {}      # Face -> raw Qwen dict (for the merged listing)
-    front_upright = None   # upright front-cover BGR, for the title reader
+    front_upright = None   # upright front-cover BGR, for title reading
 
     for path in chunk:
         face = faces[path]
         t0 = time.perf_counter()
         try:
             sc = scans.get(path)
-            if sc is not None and use_extract:
-                cover = scan.orient_and_tighten(sc[0], face)
-                # Decide orientation first (OCR vote is free + reliable on text
-                # faces), then read the UPRIGHT cover so Qwen transcribes the most.
-                by_text = scan.flip_by_text(np.ascontiguousarray(cover[:, :, :3]))
-                if by_text is None:
-                    # Disc/inside: one read gives fields + an upright verdict.
-                    qdata = vlm.extract_face(np.ascontiguousarray(cover[:, :, :3]), settings)
-                    flip = _decide_flip(cover, settings, qdata.get("upright"))
-                else:
-                    flip = by_text
-                    up_cover = cv2.rotate(cover, cv2.ROTATE_180) if flip else cover
-                    qdata = vlm.extract_face(np.ascontiguousarray(up_cover[:, :, :3]), settings)
-                per_face_raw[face] = qdata
+            if sc is not None:
+                pil, res = _compose_from_scan(path, sc[0], face, settings, 0, t0)
                 if face == Face.FRONT:
+                    cover = scan.orient_and_tighten(sc[0], face)
+                    by_text = scan.flip_by_text(np.ascontiguousarray(cover[:, :, :3]))
+                    flip = by_text if by_text is not None else _decide_flip(cover, settings)
                     up = cv2.rotate(cover, cv2.ROTATE_180) if flip else cover
                     front_upright = np.ascontiguousarray(up[:, :, :3]).copy()
-                pil, res = _compose_oriented(path, cover, face, settings, flip, 0, t0, None)
-            elif sc is not None:
-                pil, res = _compose_from_scan(path, sc[0], face, settings, 0, t0)
             else:
                 pil, res = _compose_fallback(path, bgrs[path], face, settings, None, 0, t0)
         except Exception as e:
@@ -268,20 +271,11 @@ def _process_chunk(chunk, settings, gi, progress_cb, done, total):
         if progress_cb:
             progress_cb(done, total, path.name)
 
+    # Barcode is cheap (pyzbar on the back-cover original) and accurate, so it
+    # stays in title-only mode — only the slow Qwen field scan was dropped.
     bc = _decode_barcode(bgrs, faces)
-    scan_data = None
-    if per_face_raw:
-        scan_data = extract.merge_faces(per_face_raw, settings.default_region)
-        if bc:
-            scan_data.barcode = Field(bc, HIGH, False, "decoder")
-
-    title = _read_title(front_upright, composed, scan_data, settings, gi)
-    if scan_data:
-        known = not title.startswith("Untitled DVD")
-        scan_data.title = Field(title, HIGH if known else UNKNOWN, not known, "title")
-        scan_data.suggested_title = extract.suggested_ebay_title(scan_data)
-
-    return composed, scan_data, bc, title, done
+    title = _read_title(front_upright, composed, None, settings, gi)
+    return composed, None, bc, title, done
 
 
 def run_batch(settings, progress_cb=None):
@@ -311,10 +305,10 @@ def run_batch(settings, progress_cb=None):
                        for i, p in enumerate(chunk)]))
             continue
 
-        dvd_dir = run_dir / naming.safe_stem(title)
+        dvd_dir = _unique_dir(run_dir, naming.safe_stem(title))
         dvd_dir.mkdir(parents=True, exist_ok=True)
         group = DvdGroup(index=gi, barcode=bc, title=title,
-                         region=settings.default_region, shots=[], scan=scan_data)
+                         region=settings.default_region, shots=[], scan=None)
         for face, (pil, res) in composed.items():
             res.title, res.region = title, group.region
             if pil is not None:
@@ -324,7 +318,6 @@ def run_batch(settings, progress_cb=None):
             group.shots.append(res)
         group.shots.sort(key=lambda s: FACE_ORDER.index(s.face))
 
-        naming.write_dvd_files(dvd_dir, group)     # per-DVD listing + scan json
         dvd_groups.append(group)
 
     naming.write_listing(run_dir, dvd_groups)      # master summary
