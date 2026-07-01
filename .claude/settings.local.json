@@ -170,7 +170,20 @@
       "Bash(timeout 8 .venv/Scripts/python.exe -c ' *)",
       "Bash(timeout 90 \".venv/Scripts/python.exe\" -m pytest -q)",
       "Bash(timeout 6 \".venv/Scripts/python.exe\" -m redboxflip)",
-      "Bash(echo \"EXIT_CODE=$?\")"
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_ebay_config.py -v)",
+      "Bash(grep -q '^\\\\.env$' .gitignore)",
+      "Bash(echo '.env')",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_ebay.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_service.py -v -k resolve_identity)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_service.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_service.py -v -k test_resolve_identity_uses_ebay_when_barcode_matches)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_service.py tests/test_cropstudio_app.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_service.py -v -k \"mismatch\")",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_manifest.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_manifest.py tests/test_cropstudio_app.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest tests/test_cropstudio_*.py -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest -q)"
     ]
   }
 }

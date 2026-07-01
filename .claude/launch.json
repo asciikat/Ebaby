@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "http.server", "8770", "--directory", "cropstudio/static"],
       "port": 8770
+    },
+    {
+      "name": "cropstudio",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "cropstudio"],
+      "port": 8765
     }
   ]
 }
