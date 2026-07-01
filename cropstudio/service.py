@@ -5,6 +5,8 @@ output is identical to the main pipeline's per-DVD folders.
 """
 from pathlib import Path
 
+import re
+
 import cv2
 import numpy as np
 from PIL import Image
@@ -32,9 +34,19 @@ def ensure_decodable(data: bytes) -> None:
     _decode(data)
 
 
+def _title_word_seen_in_text(title: str, text: str) -> bool:
+    """True if any 4+ letter word from `title` appears in `text` (case-insensitive).
+    Best-effort heuristic — not proof, just enough to flag an obvious mismatch."""
+    if not title or not text:
+        return False
+    words = re.findall(r"[A-Za-z]{4,}", title)
+    text_low = text.lower()
+    return any(w.lower() in text_low for w in words)
+
+
 def resolve_identity(shots: dict, settings, ebay_config=None,
                       barcode_decoder=None, ebay_client=None,
-                      qwen_reader=None) -> dict:
+                      qwen_reader=None, front_text_reader=None) -> dict:
     """Resolve a DVD's title + supporting identity data from its shots.
 
     Priority: a barcode decoded off the Back shot (slot 0), matched against
@@ -54,7 +66,7 @@ def resolve_identity(shots: dict, settings, ebay_config=None,
     ebay_config = ebay_config if ebay_config is not None else load_ebay_config()
 
     result = {"title": "", "title_source": "none", "barcode": None,
-              "ebay_match": None}
+              "ebay_match": None, "mismatch_warning": False}
 
     if 0 in shots:
         _, back_bgr = _decode(shots[0])
@@ -71,6 +83,15 @@ def resolve_identity(shots: dict, settings, ebay_config=None,
                         result["ebay_match"] = match
                 except EbayUnavailable:
                     pass   # falls through to Qwen below
+
+            if result["title_source"] == "ebay" and 1 in shots:
+                _, front_bgr = _decode(shots[1])
+                front_reader = front_text_reader
+                if front_reader is None:
+                    front_reader = lambda bgr, s: vlm.extract_face(bgr, s).get("all_text", "")
+                front_text = front_reader(front_bgr, settings) or ""
+                if front_text and not _title_word_seen_in_text(result["title"], front_text):
+                    result["mismatch_warning"] = True
 
     if not result["title"]:
         reader = qwen_reader
@@ -103,14 +124,15 @@ def _unique_title(run_dir, title, faces) -> str:
 
 def save_dvd(shots: dict, run_dir, settings, dvd_counter: int,
              reader=None, ebay_config=None, barcode_decoder=None,
-             ebay_client=None, quality: int = 92) -> dict:
+             ebay_client=None, front_text_reader=None, quality: int = 92) -> dict:
     """Write one DVD's shots flat into run_dir. Returns
     {title, dir, files, title_source, barcode, new_stock, used_stock,
     mismatch_warning}."""
     run_dir = Path(run_dir)
     identity = resolve_identity(shots, settings, ebay_config=ebay_config,
                                 barcode_decoder=barcode_decoder,
-                                ebay_client=ebay_client, qwen_reader=reader)
+                                ebay_client=ebay_client, qwen_reader=reader,
+                                front_text_reader=front_text_reader)
     title = identity["title"] or f"Untitled DVD {dvd_counter}"
     faces_present = [FACE_ORDER[slot] for slot in sorted(shots.keys())]
     unique_title = _unique_title(run_dir, title, faces_present)

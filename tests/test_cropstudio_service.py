@@ -57,6 +57,19 @@ def test_ensure_decodable_rejects_junk():
     service.ensure_decodable(_jpeg((5, 5, 5)))   # does not raise
 
 
+def test_save_dvd_surfaces_mismatch_warning(tmp_path):
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    out = service.save_dvd(
+        shots, tmp_path, settings=None, dvd_counter=1,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("123", "pyzbar", 0),
+        ebay_client=_FakeEbayClient({"found": True, "title": "Sexy Beast"}),
+        front_text_reader=lambda bgr, s: "SEXY BEAST",
+    )
+    assert "mismatch_warning" in out
+    assert out["mismatch_warning"] is False
+
+
 class _FakeEbayClient:
     def __init__(self, match):
         self._match = match
@@ -84,7 +97,8 @@ def test_resolve_identity_uses_ebay_when_barcode_matches():
         ebay_config=EbayConfig(client_id="id", client_secret="secret"),
         barcode_decoder=lambda bgr: ("9325336022306", "pyzbar", 0),
         ebay_client=_FakeEbayClient({"found": True, "title": "Sexy Beast (DVD)"}),
-        qwen_reader=lambda bgr, s: qwen_calls.append(1) or "SHOULD NOT BE USED")
+        qwen_reader=lambda bgr, s: qwen_calls.append(1) or "SHOULD NOT BE USED",
+        front_text_reader=lambda bgr, s: "SEXY BEAST")
     assert result["title"] == "Sexy Beast"     # titles.clean_title strips the "(DVD)" noise
     assert result["title_source"] == "ebay"
     assert result["barcode"] == "9325336022306"
@@ -125,6 +139,40 @@ def test_resolve_identity_falls_back_to_qwen_when_ebay_unreachable():
         qwen_reader=lambda bgr, s: "Fallback Title")
     assert result["title"] == "Fallback Title"
     assert result["title_source"] == "qwen"
+
+
+def test_resolve_identity_warns_on_front_back_mismatch():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("9325336022306", "pyzbar", 0),
+        ebay_client=_FakeEbayClient({"found": True, "title": "Sexy Beast (DVD)"}),
+        front_text_reader=lambda bgr, s: "AMERICAN DAD VOLUME 4 SEASON FOUR")
+    assert result["title"] == "Sexy Beast"
+    assert result["mismatch_warning"] is True
+
+
+def test_resolve_identity_no_warning_when_front_text_matches():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("9325336022306", "pyzbar", 0),
+        ebay_client=_FakeEbayClient({"found": True, "title": "Sexy Beast (DVD)"}),
+        front_text_reader=lambda bgr, s: "SEXY BEAST a film by jonathan glazer")
+    assert result["mismatch_warning"] is False
+
+
+def test_resolve_identity_no_warning_when_title_came_from_qwen():
+    # Qwen-sourced titles have nothing to cross-check against — no guard needed.
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None, ebay_config=EbayConfig(),
+        barcode_decoder=lambda bgr: (None, "", 0),
+        qwen_reader=lambda bgr, s: "Amadeus",
+        front_text_reader=lambda bgr, s: "totally unrelated text")
+    assert result["mismatch_warning"] is False
 
 
 def test_resolve_identity_no_barcode_no_qwen_reader_returns_empty(monkeypatch):
