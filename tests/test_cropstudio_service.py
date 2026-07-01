@@ -3,6 +3,8 @@ import numpy as np
 import pytest
 
 from cropstudio import service
+from cropstudio.ebay import EbayUnavailable
+from cropstudio.ebay_config import EbayConfig
 
 
 def _jpeg(color):
@@ -48,3 +50,86 @@ def test_ensure_decodable_rejects_junk():
     with pytest.raises(ValueError):
         service.ensure_decodable(b"not a jpeg")
     service.ensure_decodable(_jpeg((5, 5, 5)))   # does not raise
+
+
+class _FakeEbayClient:
+    def __init__(self, match):
+        self._match = match
+
+    def get_token(self, config):
+        return "tok"
+
+    def lookup_barcode(self, barcode, token, config):
+        return self._match
+
+
+class _UnreachableEbayClient:
+    def get_token(self, config):
+        raise EbayUnavailable("no network")
+
+    def lookup_barcode(self, barcode, token, config):
+        raise EbayUnavailable("no network")
+
+
+def test_resolve_identity_uses_ebay_when_barcode_matches():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    qwen_calls = []
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("9325336022306", "pyzbar", 0),
+        ebay_client=_FakeEbayClient({"found": True, "title": "Sexy Beast (DVD)"}),
+        qwen_reader=lambda bgr, s: qwen_calls.append(1) or "SHOULD NOT BE USED")
+    assert result["title"] == "Sexy Beast"     # titles.clean_title strips the "(DVD)" noise
+    assert result["title_source"] == "ebay"
+    assert result["barcode"] == "9325336022306"
+    assert qwen_calls == []          # Qwen never invoked when barcode+eBay found it
+
+
+def test_resolve_identity_falls_back_to_qwen_when_no_barcode():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None, ebay_config=EbayConfig(),
+        barcode_decoder=lambda bgr: (None, "", 0),
+        qwen_reader=lambda bgr, s: "Amadeus")
+    assert result["title"] == "Amadeus"
+    assert result["title_source"] == "qwen"
+    assert result["barcode"] is None
+
+
+def test_resolve_identity_falls_back_to_qwen_when_no_ebay_match():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("000000000000", "pyzbar", 0),
+        ebay_client=_FakeEbayClient({"found": False}),
+        qwen_reader=lambda bgr, s: "King Kong")
+    assert result["title"] == "King Kong"
+    assert result["title_source"] == "qwen"
+    assert result["barcode"] == "000000000000"
+
+
+def test_resolve_identity_falls_back_to_qwen_when_ebay_unreachable():
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("123", "pyzbar", 0),
+        ebay_client=_UnreachableEbayClient(),
+        qwen_reader=lambda bgr, s: "Fallback Title")
+    assert result["title"] == "Fallback Title"
+    assert result["title_source"] == "qwen"
+
+
+def test_resolve_identity_no_barcode_no_qwen_reader_returns_empty(monkeypatch):
+    # Force Qwen unreachable (Ollama may genuinely be live on this dev
+    # machine, which would otherwise make a real hallucination-prone call).
+    monkeypatch.setattr(service.vlm, "available", lambda: False)
+    shots = {0: _jpeg((1, 1, 1))}
+    result = service.resolve_identity(
+        shots, settings=None, ebay_config=EbayConfig(),
+        barcode_decoder=lambda bgr: (None, "", 0),
+        qwen_reader=None)
+    assert result["title"] == ""
+    assert result["title_source"] == "none"

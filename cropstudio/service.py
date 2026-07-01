@@ -7,9 +7,13 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from redboxflip import naming, titles, vlm
+from redboxflip import barcode, naming, titles, vlm
 from redboxflip.imaging import save_jpeg
 from redboxflip.models import FACE_ORDER
+
+from . import ebay as _ebay_module
+from .ebay import EbayUnavailable
+from .ebay_config import load_ebay_config
 
 
 def _decode(data: bytes):
@@ -24,6 +28,63 @@ def _decode(data: bytes):
 def ensure_decodable(data: bytes) -> None:
     """Raise ValueError if the bytes are not a decodable image."""
     _decode(data)
+
+
+def resolve_identity(shots: dict, settings, ebay_config=None,
+                      barcode_decoder=None, ebay_client=None,
+                      qwen_reader=None) -> dict:
+    """Resolve a DVD's title + supporting identity data from its shots.
+
+    Priority: a barcode decoded off the Back shot (slot 0), matched against
+    the eBay Browse API, is the PRIMARY source (grounded in real catalog
+    data). Qwen vision (`qwen_reader`) is the FALLBACK — it only runs when
+    the barcode doesn't decode, or decodes but eBay has no match for it.
+    Qwen never overrides a barcode-resolved title.
+
+    `barcode_decoder(bgr) -> (digits|None, method, rotation)` defaults to
+    `redboxflip.barcode.decode`. `ebay_client` needs `.get_token(config)` and
+    `.lookup_barcode(barcode, token, config)`, defaulting to the
+    `cropstudio.ebay` module. `qwen_reader(bgr, settings) -> str|None`
+    defaults to `redboxflip.vlm.title_from_cover` when reachable.
+    """
+    barcode_decoder = barcode_decoder or barcode.decode
+    ebay_client = ebay_client or _ebay_module
+    ebay_config = ebay_config if ebay_config is not None else load_ebay_config()
+
+    result = {"title": "", "title_source": "none", "barcode": None,
+              "ebay_match": None}
+
+    if 0 in shots:
+        _, back_bgr = _decode(shots[0])
+        digits, _method, _rotation = barcode_decoder(back_bgr)
+        if digits:
+            result["barcode"] = digits
+            if ebay_config.configured:
+                try:
+                    token = ebay_client.get_token(ebay_config)
+                    match = ebay_client.lookup_barcode(digits, token, ebay_config)
+                    if match.get("found"):
+                        result["title"] = titles.clean_title(match["title"])
+                        result["title_source"] = "ebay"
+                        result["ebay_match"] = match
+                except EbayUnavailable:
+                    pass   # falls through to Qwen below
+
+    if not result["title"]:
+        reader = qwen_reader
+        if reader is None and vlm.available():
+            reader = vlm.title_from_cover
+        if reader is not None:
+            for slot in (1, 0, 2):
+                if slot in shots:
+                    _, bgr = _decode(shots[slot])
+                    t = reader(bgr, settings)
+                    if t:
+                        result["title"] = titles.clean_title(t)
+                        result["title_source"] = "qwen"
+                    break
+
+    return result
 
 
 def resolve_title(shots: dict, settings, reader=None) -> str:
