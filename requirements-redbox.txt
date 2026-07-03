@@ -6,6 +6,7 @@ zxing-cpp
 rembg
 onnxruntime
 rawpy
+pywebview
 requests
 pytest
 # optional, only if the SAM cutout engine is used:
@@ -14,3 +15,5 @@ pytest
 # pytesseract
 # test-only (generates barcodes for the decoder tests):
 python-barcode
+# build-only (desktop exe packaging):
+pyinstaller
