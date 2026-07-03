@@ -47,3 +47,28 @@ def test_enhance_image_returns_same_shape_uint8():
     img = _bordered_image(border_bgr=(220, 220, 220), center_bgr=(90, 120, 150))
     out = colorcorrect.enhance_image(img)
     assert out.shape == img.shape and out.dtype == np.uint8
+
+
+import glob
+import os
+
+import cv2
+import pytest
+
+_REAL_DNGS = sorted(glob.glob(os.path.join("Images in", "*.dng")))
+
+
+def test_raw_to_jpeg_rejects_non_raw_bytes():
+    with pytest.raises(ValueError):
+        colorcorrect.raw_to_jpeg(b"definitely not a raw file")
+
+
+@pytest.mark.skipif(not _REAL_DNGS, reason="no real DNG fixture on this machine")
+def test_raw_to_jpeg_decodes_a_real_dng():
+    data = open(_REAL_DNGS[0], "rb").read()
+    jpeg = colorcorrect.raw_to_jpeg(data)
+    img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    assert img is not None
+    # half_size decode of a 12MP phone DNG is still comfortably above the
+    # browser canvas's 1200px working width
+    assert max(img.shape[:2]) >= 1200

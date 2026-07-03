@@ -116,3 +116,52 @@ def enhance_image(bgr_img, contrast=1.0, saturation=1.1, sharpen=1.2):
         factor = sharpen - 1.0
         return cv2.addWeighted(img_color, 1.0 + factor, blurred, -factor, 0)
     return img_color
+
+
+# ----------------------------------------------------------------------
+#  RAW decode (rawpy imported lazily — see module docstring)
+# ----------------------------------------------------------------------
+def _denoise_levels():
+    import rawpy
+    return {
+        "off":    (rawpy.FBDDNoiseReductionMode.Off,  None,  0),
+        "light":  (rawpy.FBDDNoiseReductionMode.Full, None,  1),
+        "medium": (rawpy.FBDDNoiseReductionMode.Full, 100.0, 1),
+        "strong": (rawpy.FBDDNoiseReductionMode.Full, 250.0, 2),
+    }
+
+
+def decode_raw(data: bytes, denoise: str = "light"):
+    """RAW container bytes -> BGR ndarray. Raises ValueError on junk input.
+
+    half_size=True quarters the pixel count (12MP -> 3MP, ~4x faster). The
+    browser canvas works at 1200px wide, so nothing downstream loses detail.
+    """
+    import rawpy
+    fbdd, noise_thr, median_passes = _denoise_levels().get(
+        denoise, _denoise_levels()["light"])
+    kwargs = dict(
+        use_camera_wb=True,
+        fbdd_noise_reduction=fbdd,
+        median_filter_passes=median_passes,
+        half_size=True,
+    )
+    if noise_thr is not None:
+        kwargs["noise_thr"] = noise_thr
+    try:
+        with rawpy.imread(io.BytesIO(data)) as raw:
+            rgb = raw.postprocess(**kwargs)
+    except Exception as e:
+        raise ValueError(f"could not decode RAW data: {e}") from e
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+
+def raw_to_jpeg(data: bytes, denoise: str = "light", quality: int = 92) -> bytes:
+    """Full pipeline: decode -> WB off surrounding paper -> enhance -> JPEG."""
+    bgr = decode_raw(data, denoise)
+    bgr = apply_white_balance(bgr, get_white_balance_gains(bgr))
+    bgr = enhance_image(bgr)
+    ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not ok:
+        raise ValueError("could not encode corrected image")
+    return buf.tobytes()
