@@ -800,11 +800,21 @@
             const maskX = offsetX + shavePx, maskY = offsetY + shavePx;
             const maskW = warped.cols - 2 * shavePx, maskH = warped.rows - 2 * shavePx;
 
+            // Soft skirt first (blurred mask)...
             bctx.filter = `blur(${blurPx}px)`;
             bctx.fillStyle = 'black';
+            bctx.beginPath();
             bctx.roundRect(maskX, maskY, Math.max(1, maskW), Math.max(1, maskH), cornerRadius);
             bctx.fill();
             bctx.filter = 'none';
+            // ...then re-harden the interior: a Gaussian ramp is symmetric, so
+            // without this the feather eats blurPx INTO the case artwork.
+            // Re-filling the same rect hard snaps interior alpha back to 1 —
+            // the case stays crisp to its edge and the feather fades OUTWARD
+            // into the white background only.
+            bctx.beginPath();
+            bctx.roundRect(maskX, maskY, Math.max(1, maskW), Math.max(1, maskH), cornerRadius);
+            bctx.fill();
             bctx.globalCompositeOperation = 'source-in';
             bctx.drawImage(warpCanvas, offsetX, offsetY);
 
