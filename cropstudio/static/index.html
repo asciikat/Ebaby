@@ -261,11 +261,26 @@
             document.getElementById('finishDvdBtn').classList.toggle('hidden', last || currentSlot !== 1);
         }
 
+        // Camera RAW containers the browser cannot decode. Server-side RAW
+        // ingestion (rawpy) is a planned separate feature; until then, fail
+        // loudly instead of hanging on "Loading image..." forever.
+        const RAW_EXTS = /\.(dng|nef|cr2|cr3|arw|raf|orf|rw2|pef|srw)$/i;
+
+        function _unreadable(file, why) {
+            imageLoaded = false;
+            setStatus(`Can't open ${file.name}`, 'text-red-600');
+            showToast(`Can't open "${file.name}" — ${why}`, false);
+        }
+
         function loadCurrent() {
             const file = queue[qIndex];
             if (!file) return;
-            setStatus('Loading image...', 'text-red-500');
             updatePos();
+            if (RAW_EXTS.test(file.name)) {
+                _unreadable(file, 'RAW files are not supported yet. Convert to JPG first (or use the phone camera\'s JPG output).');
+                return;
+            }
+            setStatus('Loading image...', 'text-red-500');
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
@@ -280,8 +295,10 @@
                     corners = null;              // new image: drop the previous quad
                     if (isCvLoaded) runAutoDetect();
                 };
+                img.onerror = () => _unreadable(file, 'not a browser-readable image.');
                 img.src = event.target.result;
             };
+            reader.onerror = () => _unreadable(file, 'could not read the file.');
             reader.readAsDataURL(file);
         }
 
@@ -337,6 +354,13 @@
         const MIN_CONTENT_FRACTION = 0.4;
 
         document.getElementById('nextBtn').addEventListener('click', async () => {
+            if (!imageLoaded) {
+                // Unreadable file (e.g. RAW): skip it without burning the slot —
+                // the next file still belongs to the same face.
+                if (qIndex < queue.length - 1) { qIndex++; loadCurrent(); }
+                else showToast('Nothing readable to save.', false);
+                return;
+            }
             const frac = contentFraction();
             if (frac < MIN_CONTENT_FRACTION) {
                 showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
@@ -345,6 +369,7 @@
             try {
                 const res = await postCurrentShot();
                 if (res.status === 'saved') showToast(`Saved "${res.title}" (${res.files.length} files)`, true);
+                else if (res.status === 'buffered') showToast(`Buffered ${FACE_LABEL[currentSlot]} (${res.have.length} shot(s) held for this DVD)`, true);
             } catch (err) {
                 showToast('Save failed: ' + err.message + ' — click Save & Next to retry', false);
                 return;   // do NOT advance; keep the crop on screen
@@ -355,6 +380,10 @@
         });
 
         document.getElementById('finishDvdBtn').addEventListener('click', async () => {
+            if (!imageLoaded) {
+                showToast('No image loaded for this shot — nothing to save. Fix or skip the file.', false);
+                return;
+            }
             const frac = contentFraction();
             if (frac < MIN_CONTENT_FRACTION) {
                 showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
@@ -375,6 +404,10 @@
         });
 
         document.getElementById('finishBtn').addEventListener('click', async () => {
+            if (!imageLoaded) {
+                showToast('No image loaded for this shot — nothing to save. Fix or skip the file.', false);
+                return;
+            }
             const frac = contentFraction();
             if (frac < MIN_CONTENT_FRACTION) {
                 showToast(`Crop looks mostly blank (${Math.round(frac * 100)}% content) — check the corners`, false);
