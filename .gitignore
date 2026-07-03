@@ -9,3 +9,5 @@ Images in/
 *.dng
 !samples/*.dng
 .env
+dist/
+build/
