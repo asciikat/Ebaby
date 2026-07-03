@@ -1,5 +1,6 @@
 """Where Crop Studio writes its output (native Windows path, not the WSL default)."""
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -10,9 +11,14 @@ def project_root() -> Path:
 
 
 def output_root() -> Path:
-    """processed/ root. CROPSTUDIO_OUTPUT overrides; default is <project>/processed."""
+    """processed/ root. CROPSTUDIO_OUTPUT overrides; frozen exe writes next
+    to itself; dev default is <project>/processed."""
     env = os.environ.get("CROPSTUDIO_OUTPUT")
-    return Path(env) if env else project_root() / "processed"
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):          # PyInstaller bundle
+        return Path(sys.executable).resolve().parent / "processed"
+    return project_root() / "processed"
 
 
 def make_run_dir(now: str = None) -> Path:

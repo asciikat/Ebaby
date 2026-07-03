@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from cropstudio import paths
@@ -22,3 +23,10 @@ def test_make_run_dir_creates_timestamped_dir(monkeypatch, tmp_path):
     d = paths.make_run_dir(now="20260623_151004")
     assert d == tmp_path / "run_20260623_151004"
     assert d.is_dir()
+
+
+def test_output_root_next_to_exe_when_frozen(tmp_path, monkeypatch):
+    monkeypatch.delenv("CROPSTUDIO_OUTPUT", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "CropStudio.exe"))
+    assert paths.output_root() == tmp_path / "processed"
