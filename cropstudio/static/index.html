@@ -219,11 +219,17 @@
         function scheduleOutput() { clearTimeout(window._o); window._o = setTimeout(renderOutput, 30); }
 
         function onOpenCvLoaded() {
-            cv['onRuntimeInitialized'] = () => {
+            const ready = () => {
                 isCvLoaded = true;
                 document.getElementById('loader').style.display = 'none';
                 setStatus("Engine Ready — upload a batch of photos", "text-red-600");
             };
+            // With a warm WASM cache the runtime can finish initializing
+            // BEFORE this handler runs — assigning onRuntimeInitialized then
+            // would never fire and the loader would sit forever. If cv.Mat
+            // already exists, the runtime is up: proceed immediately.
+            if (typeof cv !== 'undefined' && typeof cv.Mat === 'function') ready();
+            else cv['onRuntimeInitialized'] = ready;
         }
 
         function setStatus(text, colorClass) {
@@ -503,7 +509,16 @@
             if (!isCvLoaded || !imageLoaded) return;
             let src = cv.imread(sourceCanvas);
             try {
-                const box = autoDetect(src);
+                // Primary: the case is the biggest non-white blob on the white
+                // paper background (same segmentation family as the server's
+                // white-balance mask — proven on the real capture protocol,
+                // where Canny edges shatter on glossy shrink-wrap). Canny
+                // scoring stays as the fallback, so a blobDetect error (e.g.
+                // an opencv.js build missing an API) must not escape past it.
+                let box = null;
+                try { box = blobDetect(src); }
+                catch (e) { console.warn('blobDetect failed, falling back to edge detect:', e); }
+                if (!box) box = autoDetect(src);
                 if (box) { corners = box; setStatus("Auto-detected — drag to fine-tune", "text-red-700"); }
                 else {
                     if (!corners) setDefaultBox();
@@ -514,6 +529,71 @@
             fitDisplay();
             renderOverlay();
             renderOutput();
+        }
+
+        function blobDetect(src) {
+            // Threshold ladder mirrors cropstudio/colorcorrect.py's
+            // get_surrounding_white_mask: strict first, relax if the content
+            // blob comes up too small to be the case.
+            const LADDER = [[150, 45], [120, 60]];
+            let rgb = new cv.Mat(), hsv = new cv.Mat();
+            cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB, 0);
+            cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV, 0);
+            const imgArea = src.cols * src.rows;
+            let bestBox = null;
+            try {
+                for (const [vThr, sThr] of LADDER) {
+                    let white = new cv.Mat(), content = new cv.Mat();
+                    let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, vThr, 0]);
+                    let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, sThr, 255, 255]);
+                    let labels = new cv.Mat(), stats = new cv.Mat(), centroids = new cv.Mat();
+                    let contours = new cv.MatVector(), hier = new cv.Mat();
+                    let labelVal = null;
+                    const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
+                    try {
+                        cv.inRange(hsv, low, high, white);          // white paper mask
+                        cv.bitwise_not(white, content);              // everything else = content
+                        cv.morphologyEx(content, content, cv.MORPH_OPEN, k);
+                        cv.morphologyEx(content, content, cv.MORPH_CLOSE, k);
+                        const n = cv.connectedComponentsWithStats(content, labels, stats, centroids);
+                        let biggest = 0, biggestArea = 0;
+                        for (let i = 1; i < n; i++) {
+                            const a = stats.intAt(i, cv.CC_STAT_AREA);
+                            if (a > biggestArea) { biggestArea = a; biggest = i; }
+                        }
+                        // The case fills a solid chunk of a close-up photo.
+                        if (biggest === 0 || biggestArea < 0.10 * imgArea) continue;
+                        let mask = new cv.Mat();
+                        labelVal = new cv.Mat(labels.rows, labels.cols, labels.type(),
+                                              [biggest, 0, 0, 0]);
+                        try {
+                            cv.compare(labels, labelVal, mask, cv.CMP_EQ);
+                            cv.findContours(mask, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                            let bigC = null, bigA = 0;
+                            for (let i = 0; i < contours.size(); i++) {
+                                const c = contours.get(i);
+                                const a = cv.contourArea(c);
+                                if (a > bigA) { bigA = a; if (bigC) bigC.delete(); bigC = c; }
+                                else c.delete();
+                            }
+                            if (bigC) {
+                                cv.imshow('debugCanvas', content);   // show what was segmented
+                                bestBox = rotatedRectCorners(cv.minAreaRect(bigC));
+                                bigC.delete();
+                            }
+                        } finally { mask.delete(); }
+                        if (bestBox) return bestBox;
+                    } finally {
+                        white.delete(); content.delete(); low.delete(); high.delete();
+                        labels.delete(); stats.delete(); centroids.delete();
+                        contours.delete(); hier.delete(); k.delete();
+                        if (labelVal) labelVal.delete();
+                    }
+                }
+            } finally {
+                rgb.delete(); hsv.delete();
+            }
+            return bestBox;
         }
 
         function autoDetect(src) {
