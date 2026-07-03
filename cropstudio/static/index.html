@@ -284,9 +284,15 @@
             if (isCvLoaded) runAutoDetect();
         }
 
+        // Monotonic token: each loadCurrent() call invalidates any decode/read
+        // still in flight for a previous shot, so a slow server RAW decode can
+        // never draw its result over a shot the user has since navigated to.
+        let _loadSeq = 0;
+
         function loadCurrent() {
             const file = queue[qIndex];
             if (!file) return;
+            const myLoad = ++_loadSeq;
             updatePos();
             if (RAW_EXTS.test(file.name)) {
                 setStatus('Decoding RAW on server...', 'text-red-500');
@@ -299,22 +305,28 @@
                     })
                     .then(blob => {
                         const img = new Image();
-                        img.onload = () => { URL.revokeObjectURL(img.src); _drawLoadedImage(img); };
-                        img.onerror = () => _unreadable(file, 'server RAW decode returned an unreadable image.');
+                        img.onload = () => {
+                            URL.revokeObjectURL(img.src);
+                            if (myLoad === _loadSeq) _drawLoadedImage(img);
+                        };
+                        img.onerror = () => {
+                            URL.revokeObjectURL(img.src);
+                            if (myLoad === _loadSeq) _unreadable(file, 'server RAW decode returned an unreadable image.');
+                        };
                         img.src = URL.createObjectURL(blob);
                     })
-                    .catch(err => _unreadable(file, 'RAW decode failed (' + err.message + ').'));
+                    .catch(err => { if (myLoad === _loadSeq) _unreadable(file, 'RAW decode failed (' + err.message + ').'); });
                 return;
             }
             setStatus('Loading image...', 'text-red-500');
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
-                img.onload = () => _drawLoadedImage(img);
-                img.onerror = () => _unreadable(file, 'not a browser-readable image.');
+                img.onload = () => { if (myLoad === _loadSeq) _drawLoadedImage(img); };
+                img.onerror = () => { if (myLoad === _loadSeq) _unreadable(file, 'not a browser-readable image.'); };
                 img.src = event.target.result;
             };
-            reader.onerror = () => _unreadable(file, 'could not read the file.');
+            reader.onerror = () => { if (myLoad === _loadSeq) _unreadable(file, 'could not read the file.'); };
             reader.readAsDataURL(file);
         }
 
