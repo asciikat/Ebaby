@@ -5,6 +5,7 @@ pyzbar
 zxing-cpp
 rembg
 onnxruntime
+rawpy
 requests
 pytest
 # optional, only if the SAM cutout engine is used:
