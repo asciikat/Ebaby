@@ -2,12 +2,12 @@
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from redboxflip import vlm
 from redboxflip.config import load_settings
 
-from . import batch, manifest, paths, service
+from . import batch, colorcorrect, manifest, paths, service
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -55,6 +55,15 @@ def create_app(run_dir=None, settings=None):
         if req is None:
             return {"status": "buffered", "have": sorted(state.buffer.keys())}
         return {"status": "saved", **_flush(req)}
+
+    @app.post("/rawdecode")
+    async def rawdecode(image: UploadFile = File(...)):
+        data = await image.read()
+        try:
+            jpeg = colorcorrect.raw_to_jpeg(data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return Response(content=jpeg, media_type="image/jpeg")
 
     @app.post("/finish")
     def finish():

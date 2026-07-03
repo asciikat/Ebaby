@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from cropstudio.app import create_app
 from cropstudio import manifest
 import cropstudio.service as service
+import cropstudio.colorcorrect as colorcorrect
 
 
 def _jpeg(color=(20, 20, 20)):
@@ -73,3 +74,20 @@ def test_saving_a_dvd_appends_a_manifest_entry(tmp_path, monkeypatch):
     assert len(entries) == 1
     assert entries[0]["title"] == "Goober"
     assert entries[0]["used_stock"] is True
+
+
+def test_rawdecode_returns_corrected_jpeg(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(colorcorrect, "raw_to_jpeg", lambda data: b"\xff\xd8fakejpeg")
+    r = c.post("/rawdecode",
+               files={"image": ("x.dng", b"raw-bytes-here", "application/octet-stream")})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert r.content == b"\xff\xd8fakejpeg"
+
+
+def test_rawdecode_bad_input_is_400(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/rawdecode",
+               files={"image": ("x.dng", b"not raw", "application/octet-stream")})
+    assert r.status_code == 400
