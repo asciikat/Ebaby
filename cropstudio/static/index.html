@@ -261,9 +261,9 @@
             document.getElementById('finishDvdBtn').classList.toggle('hidden', last || currentSlot !== 1);
         }
 
-        // Camera RAW containers the browser cannot decode. Server-side RAW
-        // ingestion (rawpy) is a planned separate feature; until then, fail
-        // loudly instead of hanging on "Loading image..." forever.
+        // Camera RAW containers the browser cannot decode. The server decodes
+        // + color-corrects them via POST /rawdecode (rawpy port of the WSL
+        // pipeline's Colorprodawgv1), so RAW uploads work like any other file.
         const RAW_EXTS = /\.(dng|nef|cr2|cr3|arw|raf|orf|rw2|pef|srw)$/i;
 
         function _unreadable(file, why) {
@@ -272,29 +272,45 @@
             showToast(`Can't open "${file.name}" — ${why}`, false);
         }
 
+        function _drawLoadedImage(img) {
+            const MAX_WIDTH = 1200;
+            let width = img.width, height = img.height;
+            if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; }
+            sourceCanvas.width = width; sourceCanvas.height = height;
+            sourceCanvas.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, width, height);
+            imageLoaded = true;
+            outputRotation = 0;
+            corners = null;                      // new image: drop the previous quad
+            if (isCvLoaded) runAutoDetect();
+        }
+
         function loadCurrent() {
             const file = queue[qIndex];
             if (!file) return;
             updatePos();
             if (RAW_EXTS.test(file.name)) {
-                _unreadable(file, 'RAW files are not supported yet. Convert to JPG first (or use the phone camera\'s JPG output).');
+                setStatus('Decoding RAW on server...', 'text-red-500');
+                const fd = new FormData();
+                fd.append('image', file, file.name);
+                fetch('/rawdecode', { method: 'POST', body: fd })
+                    .then(r => {
+                        if (!r.ok) throw new Error('server ' + r.status);
+                        return r.blob();
+                    })
+                    .then(blob => {
+                        const img = new Image();
+                        img.onload = () => { URL.revokeObjectURL(img.src); _drawLoadedImage(img); };
+                        img.onerror = () => _unreadable(file, 'server RAW decode returned an unreadable image.');
+                        img.src = URL.createObjectURL(blob);
+                    })
+                    .catch(err => _unreadable(file, 'RAW decode failed (' + err.message + ').'));
                 return;
             }
             setStatus('Loading image...', 'text-red-500');
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
-                img.onload = () => {
-                    const MAX_WIDTH = 1200;
-                    let width = img.width, height = img.height;
-                    if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; }
-                    sourceCanvas.width = width; sourceCanvas.height = height;
-                    sourceCanvas.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, width, height);
-                    imageLoaded = true;
-                    outputRotation = 0;
-                    corners = null;              // new image: drop the previous quad
-                    if (isCvLoaded) runAutoDetect();
-                };
+                img.onload = () => _drawLoadedImage(img);
                 img.onerror = () => _unreadable(file, 'not a browser-readable image.');
                 img.src = event.target.result;
             };
