@@ -141,6 +141,44 @@ def test_resolve_identity_falls_back_to_qwen_when_ebay_unreachable():
     assert result["title_source"] == "qwen"
 
 
+def test_plausible_retail_barcode_accepts_valid_ean13_upca_ean8():
+    assert service._plausible_retail_barcode("9325336022306") is True   # real EAN-13
+    assert service._plausible_retail_barcode("883316276402") is True    # real UPC-A
+    assert service._plausible_retail_barcode("96385074") is True        # valid EAN-8
+
+
+def test_plausible_retail_barcode_rejects_junk():
+    assert service._plausible_retail_barcode(None) is False
+    assert service._plausible_retail_barcode("") is False
+    assert service._plausible_retail_barcode("(01)89984225219249") is False  # GS1 noise read
+    assert service._plausible_retail_barcode("9325336022307") is False  # bad check digit
+    assert service._plausible_retail_barcode("48154254") is False       # bad EAN-8 checksum
+
+
+def test_resolve_identity_ignores_implausible_barcode():
+    # A spurious decoder read (zxing can hallucinate GS1 codes) must not
+    # reach eBay — it should fall through to Qwen like a failed decode.
+    shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
+    ebay_calls = []
+    class _SpyEbay:
+        def get_token(self, config):
+            ebay_calls.append("token")
+            return "tok"
+        def lookup_barcode(self, barcode, token, config):
+            ebay_calls.append("lookup")
+            return {"found": True, "title": "WRONG"}
+    result = service.resolve_identity(
+        shots, settings=None,
+        ebay_config=EbayConfig(client_id="id", client_secret="secret"),
+        barcode_decoder=lambda bgr: ("(01)89984225219249", "zxingcpp", 0),
+        ebay_client=_SpyEbay(),
+        qwen_reader=lambda bgr, s: "Right Title")
+    assert result["title"] == "Right Title"
+    assert result["title_source"] == "qwen"
+    assert result["barcode"] is None
+    assert ebay_calls == []
+
+
 def test_resolve_identity_warns_on_front_back_mismatch():
     shots = {0: _jpeg((1, 1, 1)), 1: _jpeg((2, 2, 2))}
     result = service.resolve_identity(

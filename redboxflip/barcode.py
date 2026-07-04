@@ -4,6 +4,8 @@ Reads the digits off a barcode using up to three decoders (pyzbar/ZBar,
 zxing-cpp, OpenCV) across rotations, scales, and preprocessings. Designed to be
 run on the FULL-RESOLUTION original back photo, never the downscaled output.
 """
+import time
+
 import cv2
 import numpy as np
 
@@ -86,15 +88,26 @@ def _try_opencv(img):
     return None
 
 
-def decode(bgr: np.ndarray):
-    """Return (digits or None, method, rotation_degrees)."""
+def decode(bgr: np.ndarray, deadline_s: float = None):
+    """Return (digits or None, method, rotation_degrees).
+
+    `deadline_s` caps the total sweep time: a barcode-less image otherwise
+    exhausts every rotation x scale x preprocessing x decoder combination
+    (measured ~114 s worst case on a real 12 MP photo). None = no cap,
+    preserving the original exhaustive behavior for the batch pipeline.
+    """
+    start = time.monotonic()
     gray0 = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     for deg, flag in _ROTATIONS.items():
         gray = gray0 if flag is None else cv2.rotate(gray0, flag)
         for scale in _SCALES:
+            if deadline_s is not None and time.monotonic() - start > deadline_s:
+                return None, "", 0
             scaled = gray if scale == 1.0 else cv2.resize(
                 gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
             for proc in _preprocs(scaled):
+                if deadline_s is not None and time.monotonic() - start > deadline_s:
+                    return None, "", 0
                 for name, fn in (("pyzbar", _try_pyzbar),
                                  ("zxingcpp", _try_zxing),
                                  ("opencv", _try_opencv)):
