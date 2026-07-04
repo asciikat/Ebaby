@@ -14,6 +14,13 @@ def _resp(json_body, status=200):
     return m
 
 
+def _error_resp(status):
+    m = MagicMock()
+    m.status_code = status
+    m.raise_for_status.side_effect = requests.exceptions.HTTPError(f"{status} error")
+    return m
+
+
 def test_get_token_raises_when_not_configured(monkeypatch):
     monkeypatch.setattr(ebay.cfg, "ebay_configured", lambda: False)
     with pytest.raises(RuntimeError, match="credentials missing"):
@@ -36,6 +43,18 @@ def test_get_token_network_failure_raises_ebay_unavailable(mock_post, monkeypatc
     monkeypatch.setattr(ebay.cfg, "EBAY_CLIENT_SECRET", "secret")
     mock_post.side_effect = requests.exceptions.ConnectionError("boom")
     with pytest.raises(ebay.EbayUnavailable, match="no network"):
+        ebay.get_token()
+
+
+@patch("ebaby.stages.ebay._SESSION.post")
+def test_get_token_http_error_status_raises_ebay_unavailable(mock_post, monkeypatch):
+    # A 401 (e.g. bad/expired app credentials) must become a clean
+    # EbayUnavailable, not an uncaught requests.HTTPError leaking to the caller.
+    monkeypatch.setattr(ebay.cfg, "ebay_configured", lambda: True)
+    monkeypatch.setattr(ebay.cfg, "EBAY_CLIENT_ID", "id")
+    monkeypatch.setattr(ebay.cfg, "EBAY_CLIENT_SECRET", "secret")
+    mock_post.return_value = _error_resp(401)
+    with pytest.raises(ebay.EbayUnavailable):
         ebay.get_token()
 
 

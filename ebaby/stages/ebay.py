@@ -68,9 +68,9 @@ def get_token() -> str:
     payload = "grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope"
     try:
         res = _SESSION.post(_TOKEN_URL, headers=headers, data=payload, timeout=30)
+        res.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise EbayUnavailable(f"can't reach eBay auth ({_root_cause(e)})") from e
-    res.raise_for_status()
     return res.json()["access_token"]
 
 
