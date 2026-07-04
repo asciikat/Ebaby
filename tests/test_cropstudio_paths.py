@@ -25,8 +25,10 @@ def test_make_run_dir_creates_timestamped_dir(monkeypatch, tmp_path):
     assert d.is_dir()
 
 
-def test_output_root_next_to_exe_when_frozen(tmp_path, monkeypatch):
+def test_output_root_in_documents_when_frozen(monkeypatch):
+    # NOT next to the exe: PyInstaller --noconfirm wipes dist/CropStudio on
+    # every rebuild, which deleted real output once (2026-07-04).
     monkeypatch.delenv("CROPSTUDIO_OUTPUT", raising=False)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "CropStudio.exe"))
-    assert paths.output_root() == tmp_path / "processed"
+    expected = Path.home() / "Documents" / "Crop Studio" / "processed"
+    assert paths.output_root() == expected

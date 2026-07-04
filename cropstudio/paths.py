@@ -11,13 +11,15 @@ def project_root() -> Path:
 
 
 def output_root() -> Path:
-    """processed/ root. CROPSTUDIO_OUTPUT overrides; frozen exe writes next
-    to itself; dev default is <project>/processed."""
+    """processed/ root. CROPSTUDIO_OUTPUT overrides; the frozen exe writes to
+    Documents\\Crop Studio (NEVER next to the exe — PyInstaller --noconfirm
+    wipes dist/CropStudio on every rebuild, which deleted real output once);
+    dev default is <project>/processed."""
     env = os.environ.get("CROPSTUDIO_OUTPUT")
     if env:
         return Path(env)
     if getattr(sys, "frozen", False):          # PyInstaller bundle
-        return Path(sys.executable).resolve().parent / "processed"
+        return Path.home() / "Documents" / "Crop Studio" / "processed"
     return project_root() / "processed"
 
 
