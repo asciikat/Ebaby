@@ -1,0 +1,6 @@
+# New deps for the ebaby/ web app, on top of requirements.txt /
+# requirements-redbox.txt which already provide cv2, numpy, rawpy,
+# pyzbar, rembg[cpu], requests, pytesseract.
+fastapi
+uvicorn[standard]
+python-multipart
