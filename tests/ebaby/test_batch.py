@@ -44,6 +44,13 @@ def test_advance_stage_unknown_to_stage_raises():
         batch.advance_stage(d, "upload", "not_a_real_stage")
 
 
+def test_advance_stage_backward_raises():
+    d = batch.create_batch("run5")
+    batch.advance_stage(d, "upload", "color")
+    with pytest.raises(batch.BatchError, match="backward"):
+        batch.advance_stage(d, "color", "upload")
+
+
 def test_read_state_missing_file_raises():
     with pytest.raises(batch.BatchError):
         batch.read_state(batch.batch_dir("never_created"))

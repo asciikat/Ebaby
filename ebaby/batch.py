@@ -62,6 +62,8 @@ def advance_stage(d: Path, from_stage: str, to_stage: str) -> dict:
         )
     if to_stage not in STAGES:
         raise BatchError(f"unknown stage '{to_stage}'")
+    if STAGES.index(to_stage) <= STAGES.index(from_stage):
+        raise BatchError(f"cannot move backward: '{from_stage}' -> '{to_stage}'")
     state["stage"] = to_stage
     state["updated"] = _now()
     write_state(d, state)
