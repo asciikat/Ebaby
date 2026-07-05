@@ -73,6 +73,35 @@ def test_ebay_run_writes_csv_and_advances(mock_token, mock_fetch, mock_write, cl
     assert mock_write.called
 
 
+@patch("ebaby.server.ebay.write_csv")
+@patch("ebaby.server.ebay.fetch_all")
+@patch("ebaby.server.ebay.get_token", return_value="tok")
+def test_ebay_run_writes_listing_txt(mock_token, mock_fetch, mock_write, client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"a": "400638133393"}
+    batch.write_state(d, state)
+    mock_fetch.return_value = [{"Barcode": "400638133393", "Image Set Name": "Matrix",
+                                "Title": "The Matrix"}]
+    body = client.post("/api/batches/run1/ebay/run").json()
+    txt = d / "Ebaby Listings.txt"
+    assert txt.exists()
+    content = txt.read_text(encoding="utf-8")
+    assert "400638133393" in content and "The Matrix" in content
+    assert body["listing_txt"].endswith("Ebaby Listings.txt")
+
+
+def test_serve_file_returns_batch_image_and_404s_outside(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    (d / "4_renamed").mkdir(parents=True, exist_ok=True)
+    (d / "4_renamed/Matrix_front.png").write_bytes(b"pngbytes")
+    ok = client.get("/api/files/run1/4_renamed/Matrix_front.png")
+    assert ok.status_code == 200
+    assert ok.content == b"pngbytes"
+    missing = client.get("/api/files/run1/4_renamed/nope.png")
+    assert missing.status_code == 404
+
+
 @patch("ebaby.server.crop.crop_and_compose")
 @patch("ebaby.server.crop.detect_crop_box")
 def test_crop_run_returns_seeded_quads_per_set(mock_detect, mock_compose, client, tmp_path):

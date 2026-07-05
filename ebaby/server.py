@@ -5,7 +5,7 @@ this file only sequences calls into ebaby.stages.* and ebaby.batch.
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -147,6 +147,26 @@ def barcode_manual(name: str, req: BarcodeManualRequest):
     return state
 
 
+def _windows_path(p):
+    """/mnt/c/... -> C:\\... so the user can paste it into Explorer."""
+    s = str(p)
+    if s.startswith("/mnt/") and len(s) > 6:
+        drive = s[5].upper()
+        return f"{drive}:" + s[6:].replace("/", "\\")
+    return s
+
+
+def _write_listing_txt(rows, out_path):
+    lines = ["EBABY LISTINGS", "=" * 40, ""]
+    for row in rows:
+        lines.append(f"Barcode: {row.get('Barcode', '?')}")
+        for k, v in row.items():
+            if k != "Barcode" and v:
+                lines.append(f"  {k}: {v}")
+        lines.append("")
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 @app.post("/api/batches/{name}/ebay/run")
 def ebay_run(name: str):
     d = batch.batch_dir(name)
@@ -155,6 +175,7 @@ def ebay_run(name: str):
     token = ebay.get_token()
     rows = ebay.fetch_all(list(barcodes.values()), token)
     ebay.write_csv(rows, d / "Ebay_Details.csv")
+    _write_listing_txt(rows, d / "Ebaby Listings.txt")
 
     barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
     key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
@@ -168,7 +189,9 @@ def ebay_run(name: str):
     state["rename_notes"] = notes
     batch.write_state(d, state)
     batch.advance_stage(d, "ebay", "crop")
-    return {"rows": rows, "notes": notes}
+    return {"rows": rows, "notes": notes,
+            "listing_txt": _windows_path(d / "Ebaby Listings.txt"),
+            "folder": _windows_path(d)}
 
 
 def _collect_sets(color_dir):
@@ -200,6 +223,17 @@ def crop_run(name: str):
         quads[src.name] = quad
     batch.advance_stage(d, "crop", "done")
     return {"quads": quads}
+
+
+@app.get("/api/files/{name}/{stage}/{filename}")
+def serve_file(name: str, stage: str, filename: str):
+    """Serve a batch image to the browser (crop grid + editor). Path pieces
+    are constrained to a known batch subfolder so this can't walk the disk."""
+    d = batch.batch_dir(name)
+    p = (d / stage / filename).resolve()
+    if d.resolve() not in p.parents or not p.is_file():
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return FileResponse(p)
 
 
 class CropManualRequest(BaseModel):

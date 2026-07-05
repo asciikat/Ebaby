@@ -2,54 +2,73 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Ebaby</title>
+  <title>EBABY</title>
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
-  <h1>Ebaby</h1>
-  <div id="stage-rail"></div>
+  <header>
+    <h1 class="logo">EBABY</h1>
+    <div class="tagline">GET IN. SCAN. GET PAID.</div>
+  </header>
 
-  <section id="stage-upload">
-    <h2>1. Upload</h2>
+  <!-- 1. UPLOAD -->
+  <section id="screen-upload">
     <div class="dropzones">
       <div class="dropzone" data-zone="used">
-        <h3>Used (3-shot: front/back/inside)</h3>
-        <input type="file" multiple data-zone-input="used" />
-        <div class="file-count" data-zone-count="used">0 files</div>
+        <h3>USED STOCK</h3>
+        <p class="hint">3 shots per DVD &mdash; front / back / inside</p>
+        <input type="file" id="input-used" multiple accept="image/*,.dng,.nef" hidden />
+        <button class="pick" data-pick="used">ADD PHOTOS</button>
+        <div class="file-count" id="count-used">0 photos</div>
       </div>
       <div class="dropzone" data-zone="new">
-        <h3>Brand New (2-shot: front/back)</h3>
-        <input type="file" multiple data-zone-input="new" />
-        <div class="file-count" data-zone-count="new">0 files</div>
+        <h3>BRAND NEW</h3>
+        <p class="hint">2 shots per DVD &mdash; front / back</p>
+        <input type="file" id="input-new" multiple accept="image/*,.dng,.nef" hidden />
+        <button class="pick" data-pick="new">ADD PHOTOS</button>
+        <div class="file-count" id="count-new">0 photos</div>
       </div>
     </div>
-    <button id="btn-rename-plan">Preview rename</button>
-    <pre id="rename-plan-output"></pre>
-    <button id="btn-rename-apply" disabled>Apply rename &amp; continue</button>
+    <button id="btn-start" class="big-btn" disabled>START THE JOB</button>
+    <div id="upload-error" class="error"></div>
   </section>
 
-  <section id="stage-barcode" hidden>
-    <h2>2. Barcodes</h2>
-    <table id="barcode-table"><thead><tr><th>Set</th><th>Barcode</th><th>Fix</th></tr></thead><tbody></tbody></table>
-    <button id="btn-barcode-continue">Continue to eBay lookup</button>
+  <!-- 2. AUTOMATED RUN -->
+  <section id="screen-progress" hidden>
+    <h2 class="mission">JOB IN PROGRESS<span class="dots"></span></h2>
+    <ul id="mission-log"></ul>
   </section>
 
-  <section id="stage-ebay" hidden>
-    <h2>3. eBay listing details</h2>
-    <table id="ebay-table"></table>
-    <button id="btn-ebay-continue">Rename &amp; continue to crop</button>
+  <!-- 3. BARCODE FIX (only if some missed) -->
+  <section id="screen-barcode" hidden>
+    <h2 class="mission wasted">BARCODES GOT AWAY</h2>
+    <p class="hint">Type the digits printed under the barcode for each miss, then carry on.</p>
+    <table id="barcode-table">
+      <thead><tr><th>DVD</th><th>SCANNED</th><th>FIX IT</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button id="btn-barcode-continue" class="big-btn">CARRY ON</button>
   </section>
 
-  <section id="stage-crop" hidden>
-    <h2>4. Crop review</h2>
+  <!-- 4. CROPPER (opens only after names + eBay are sorted) -->
+  <section id="screen-crop" hidden>
+    <h2 class="mission passed">LISTINGS SORTED</h2>
+    <div id="listing-info" class="panel"></div>
+    <details id="ebay-details"><summary>EBAY LOOKUP RESULTS</summary>
+      <div class="table-scroll"><table id="ebay-table"></table></div>
+    </details>
+
+    <h2 class="mission">THE CROPPER</h2>
+    <p class="hint">Crops never rename anything &mdash; names are locked before you get here.
+       Click a photo to adjust its corners, then SAVE.</p>
     <div id="crop-grid"></div>
-    <canvas id="crop-editor" width="600" height="800" hidden></canvas>
-    <button id="btn-crop-save" hidden>Save crop</button>
-  </section>
-
-  <section id="stage-done" hidden>
-    <h2>Done</h2>
-    <p id="done-summary"></p>
+    <div id="editor-wrap" hidden>
+      <canvas id="crop-editor" width="700" height="900"></canvas>
+      <div class="editor-buttons">
+        <button id="btn-crop-save" class="big-btn">SAVE CROP</button>
+        <button id="btn-crop-cancel" class="ghost-btn">CANCEL</button>
+      </div>
+    </div>
   </section>
 
   <script src="/app.js"></script>

@@ -13,7 +13,9 @@ from pathlib import Path
 
 STAGES = ["upload", "rename", "color", "barcode", "ebay", "crop", "done"]
 
-BATCHES_ROOT = Path("/home/M/Ebaby Runs")
+# Windows-visible so the user can open outputs in Explorer
+# (C:\Users\mardi\Documents\Ebaby Runs).
+BATCHES_ROOT = Path("/mnt/c/Users/mardi/Documents/Ebaby Runs")
 
 _SUBFOLDERS = (
     "1_originals/used", "1_originals/new", "2_color",
