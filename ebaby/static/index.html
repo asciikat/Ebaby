@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ebaby</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <h1>Ebaby</h1>
+  <div id="stage-rail"></div>
+
+  <section id="stage-upload">
+    <h2>1. Upload</h2>
+    <div class="dropzones">
+      <div class="dropzone" data-zone="used">
+        <h3>Used (3-shot: front/back/inside)</h3>
+        <input type="file" multiple data-zone-input="used" />
+        <div class="file-count" data-zone-count="used">0 files</div>
+      </div>
+      <div class="dropzone" data-zone="new">
+        <h3>Brand New (2-shot: front/back)</h3>
+        <input type="file" multiple data-zone-input="new" />
+        <div class="file-count" data-zone-count="new">0 files</div>
+      </div>
+    </div>
+    <button id="btn-rename-plan">Preview rename</button>
+    <pre id="rename-plan-output"></pre>
+    <button id="btn-rename-apply" disabled>Apply rename &amp; continue</button>
+  </section>
+
+  <section id="stage-barcode" hidden>
+    <h2>2. Barcodes</h2>
+    <table id="barcode-table"><thead><tr><th>Set</th><th>Barcode</th><th>Fix</th></tr></thead><tbody></tbody></table>
+    <button id="btn-barcode-continue">Continue to eBay lookup</button>
+  </section>
+
+  <section id="stage-ebay" hidden>
+    <h2>3. eBay listing details</h2>
+    <table id="ebay-table"></table>
+    <button id="btn-ebay-continue">Rename &amp; continue to crop</button>
+  </section>
+
+  <section id="stage-crop" hidden>
+    <h2>4. Crop review</h2>
+    <div id="crop-grid"></div>
+    <canvas id="crop-editor" width="600" height="800" hidden></canvas>
+    <button id="btn-crop-save" hidden>Save crop</button>
+  </section>
+
+  <section id="stage-done" hidden>
+    <h2>Done</h2>
+    <p id="done-summary"></p>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
