@@ -94,11 +94,11 @@ def _delivered_price(item):
     return price, False
 
 
-def _search_condition(barcode, condition_ids, headers):
+def _search_condition(query, condition_ids, headers):
     # FIXED_PRICE only: an auction sitting at $0.99 with 6 days left is not
     # a real "lowest price". deliveryCountry pins postage quotes to AU.
     params = {
-        "q": barcode,
+        "q": query,
         "filter": (f"conditionIds:{{{condition_ids}}},"
                    "buyingOptions:{FIXED_PRICE},deliveryCountry:AU"),
         "sort": "price",  # eBay sorts ascending by price + postage
@@ -141,9 +141,23 @@ def _fetch_item_specifics(item_id, headers):
     return data.get("title", ""), aspects
 
 
+def _min_price(a, b):
+    """Lowest of two optional delivered prices."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a, b)
+
+
 def fetch_listing_row(barcode, token, marketplace=None):
     """One CSV row (dict, CSV_HEADERS keys) or None if nothing found on
-    either New or Used condition search."""
+    either New or Used condition search.
+
+    Two searches per condition: first by BARCODE, then a second by TITLE
+    (many sellers never enter the barcode, so barcode-only search misses
+    their — often cheaper — listings). The lowest delivered price across
+    both searches wins; the same postage rules apply to each."""
     marketplace = marketplace or cfg.EBAY_MARKETPLACE_ID
     headers = {"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": marketplace,
                "Content-Type": "application/json"}
@@ -160,6 +174,14 @@ def fetch_listing_row(barcode, token, marketplace=None):
         title, aspects = _fetch_item_specifics(specifics_item_id, headers)
     if not title:
         title = fallback_title
+
+    if title:
+        # 'DVD' keeps the title search from matching Blu-rays/CDs/posters
+        q = title if "dvd" in title.lower() else f"{title} DVD"
+        title_new, _, _ = _search_condition(q, NEW_CONDITIONS, headers)
+        title_used, _, _ = _search_condition(q, USED_CONDITIONS, headers)
+        lowest_new = _min_price(lowest_new, title_new)
+        lowest_used = _min_price(lowest_used, title_used)
 
     slug = slugify_title(title, fallback=barcode)
     return {

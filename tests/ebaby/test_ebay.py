@@ -177,3 +177,53 @@ def test_write_csv_matches_the_thirteen_required_columns(tmp_path):
     assert header == ("Barcode,Image Set Name,Title,Region Code,Genre,Type,"
                       "Season,Actor,Studio,Language,Rating,"
                       "Lowest Price New (AUD),Lowest Price Used (AUD)")
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_title_search_can_beat_barcode_price(mock_get):
+    """Sellers who never enter a barcode are only findable by title — their
+    cheaper delivered total must win. Postage rules still apply per search."""
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "item_summary/search" in url:
+            by_title = "Some Movie" in params["q"]
+            if "1000|1500|1750" in params["filter"]:
+                return _resp({"itemSummaries": []})  # nothing new anywhere
+            if by_title:
+                return _resp({"itemSummaries": [
+                    {"itemId": "T1", "title": "Some Movie DVD",
+                     "price": {"value": "8.00"},
+                     "shippingOptions": [{"shippingCost": {"value": "2.00"}}]},
+                ]})
+            return _resp({"itemSummaries": [
+                {"itemId": "B1", "title": "Some Movie",
+                 "price": {"value": "12.00"},
+                 "shippingOptions": [{"shippingCost": {"value": "3.00"}}]},
+            ]})
+        if "item/B1" in url:
+            return _resp({"title": "Some Movie", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("5021456189472", token="tok")
+    assert row["Lowest Price Used (AUD)"] == 10.00  # 8 + 2 beats 12 + 3
+    assert row["Title"] == "Some Movie"
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_title_search_appends_dvd_keyword(mock_get):
+    seen = []
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "item_summary/search" in url:
+            seen.append(params["q"])
+            if params["q"] == "5021456189472" and "3000" in params["filter"]:
+                return _resp({"itemSummaries": [
+                    {"itemId": "B1", "title": "Blade Runner",
+                     "price": {"value": "9.00"},
+                     "shippingOptions": [{"shippingCost": {"value": "3.00"}}]},
+                ]})
+            return _resp({"itemSummaries": []})
+        if "item/B1" in url:
+            return _resp({"title": "Blade Runner", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+    mock_get.side_effect = side_effect
+    ebay.fetch_listing_row("5021456189472", token="tok")
+    assert "Blade Runner DVD" in seen  # DVD keyword keeps Blu-rays/CDs out
