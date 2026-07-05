@@ -219,3 +219,8 @@ def crop_manual(name: str, req: CropManualRequest):
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8765)
