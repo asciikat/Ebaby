@@ -74,11 +74,35 @@ def get_token() -> str:
     return res.json()["access_token"]
 
 
+def _delivered_price(item):
+    """(total, has_postage): total is price + CHEAPEST quoted postage when the
+    seller quotes postage, or the bare price when they don't. None when the
+    item has no usable price at all (never default a missing price to $0 —
+    that fabricates bargains)."""
+    try:
+        price = float(item["price"]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    postage = []
+    for opt in item.get("shippingOptions", []):
+        try:
+            postage.append(float(opt["shippingCost"]["value"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if postage:
+        return price + min(postage), True
+    return price, False
+
+
 def _search_condition(barcode, condition_ids, headers):
+    # FIXED_PRICE only: an auction sitting at $0.99 with 6 days left is not
+    # a real "lowest price". deliveryCountry pins postage quotes to AU.
     params = {
         "q": barcode,
-        "filter": f"conditionIds:{{{condition_ids}}}",
-        "limit": "10"
+        "filter": (f"conditionIds:{{{condition_ids}}},"
+                   "buyingOptions:{FIXED_PRICE},deliveryCountry:AU"),
+        "sort": "price",  # eBay sorts ascending by price + postage
+        "limit": "20",
     }
     try:
         res = _SESSION.get(_SEARCH_URL, headers=headers, params=params)
@@ -88,18 +112,21 @@ def _search_condition(barcode, condition_ids, headers):
     summaries = res.json().get("itemSummaries", [])
     if not summaries:
         return None, None, None
-    prices = []
+
+    with_postage, bare = [], []
     for item in summaries:
-        try:
-            item_price = float(item.get("price", {}).get("value", 0))
-            shipping_opts = item.get("shippingOptions", [])
-            shipping_cost = float(shipping_opts[0].get("shippingCost", {}).get("value", 0)) if shipping_opts else 0.0
-            prices.append(item_price + shipping_cost)
-        except (ValueError, TypeError):
+        dp = _delivered_price(item)
+        if dp is None:
             continue
-    lowest_price = min(prices) if prices else None
-    top = summaries[0]
-    return lowest_price, top.get("itemId"), top.get("title", "")
+        (with_postage if dp[1] else bare).append((dp[0], item))
+
+    # Sellers who quote postage give the honest delivered total; listings
+    # with no postage info only count when nobody quotes postage at all.
+    pool = with_postage or bare
+    if not pool:
+        return None, None, None
+    lowest_price, best = min(pool, key=lambda t: t[0])
+    return lowest_price, best.get("itemId"), best.get("title", "")
 
 
 def _fetch_item_specifics(item_id, headers):
