@@ -72,10 +72,26 @@ for (const zone of ["used", "new"]) {
 
 /* ---------- 2. the automated job ---------- */
 
+function busted(err) {
+  logStep("BUSTED").fail(err.message);
+  const retry = document.createElement("button");
+  retry.className = "big-btn";
+  retry.style.marginTop = "1rem";
+  retry.textContent = "BACK TO THE GARAGE";
+  retry.addEventListener("click", () => location.reload());
+  $("#screen-progress").appendChild(retry);
+}
+
+function checked(r, what) {
+  if (r && r.error) throw new Error(`${what}: ${r.error}`);
+  return r;
+}
+
 $("#btn-start").addEventListener("click", () => {
-  runJob().catch((err) => {
-    logStep("BUSTED").fail(err.message);
-  });
+  const btn = $("#btn-start");
+  if (btn.disabled) return;
+  btn.disabled = true; // double-click = two batches
+  runJob().catch(busted);
 });
 
 async function runJob() {
@@ -114,12 +130,14 @@ async function runJob() {
 
   // colour correction
   step = logStep("Cleaning the goods so they look legit (the slow burn)");
-  const c = await api(`/batches/${state.batchName}/color/run`, { method: "POST" });
+  const c = checked(await api(`/batches/${state.batchName}/color/run`, { method: "POST" }),
+    "colour stage");
   step.done(`${c.colored} processed`);
 
   // barcode scan
   step = logStep("Interrogating the barcodes");
-  const b = await api(`/batches/${state.batchName}/barcode/run`, { method: "POST" });
+  const b = checked(await api(`/batches/${state.batchName}/barcode/run`, { method: "POST" }),
+    "barcode stage");
   const results = b.results || {};
   const missed = Object.entries(results).filter(([, v]) => !v);
   step.done(`${Object.keys(results).length - missed.length} hit, ${missed.length} missed`);
@@ -149,17 +167,30 @@ function renderBarcodeTable(results) {
 }
 
 $("#btn-barcode-continue").addEventListener("click", async () => {
-  for (const input of document.querySelectorAll("[data-fix-key]")) {
-    const digits = input.value.trim();
-    if (digits) {
-      await api(`/batches/${state.batchName}/barcode/manual`, {
-        method: "POST",
-        body: JSON.stringify({ key: input.dataset.fixKey, digits }),
-      });
+  const btn = $("#btn-barcode-continue");
+  if (btn.disabled) return; // double-click would run finishJob twice
+  btn.disabled = true;
+  try {
+    for (const input of document.querySelectorAll("[data-fix-key]")) {
+      const digits = input.value.trim();
+      if (digits) {
+        const r = await api(`/batches/${state.batchName}/barcode/manual`, {
+          method: "POST",
+          body: JSON.stringify({ key: input.dataset.fixKey, digits }),
+        });
+        if (r && r.error) {
+          alert(`Barcode for ${input.dataset.fixKey.toUpperCase()}: ${r.error}`);
+          return;
+        }
+      }
     }
+    show("screen-progress");
+    await finishJob();
+  } catch (err) {
+    busted(err);
+  } finally {
+    btn.disabled = false;
   }
-  show("screen-progress");
-  await finishJob().catch((err) => logStep("BUSTED").fail(err.message));
 });
 
 /* ---------- 4. eBay + title rename, then open the cropper ---------- */
@@ -171,7 +202,8 @@ async function finishJob() {
   if (e.warning) step.fail(e.warning); else step.done();
 
   step = logStep("Running everything through the chop shop");
-  const cr = await api(`/batches/${state.batchName}/crop/run`, { method: "POST" });
+  const cr = checked(await api(`/batches/${state.batchName}/crop/run`, { method: "POST" }),
+    "chop shop");
   state.quads = cr.quads || {};
   step.done(`${Object.keys(state.quads).length} photos`);
 
@@ -330,22 +362,36 @@ window.addEventListener("mouseup", () => { editor.dragIndex = -1; });
 $("#btn-crop-cancel").addEventListener("click", () => { $("#editor-wrap").hidden = true; });
 
 $("#btn-rechop").addEventListener("click", async () => {
+  if (!confirm("Re-chop ALL photos? Any corners you fixed by hand get re-detected from scratch.")) {
+    return;
+  }
   const btn = $("#btn-rechop");
   btn.disabled = true;
   btn.textContent = "CHOPPING…";
-  const cr = await api(`/batches/${state.batchName}/crop/run`, { method: "POST" });
-  state.quads = cr.quads || state.quads;
-  renderCropGrid();
-  btn.disabled = false;
-  btn.textContent = "RE-CHOP EVERYTHING";
+  try {
+    const cr = await api(`/batches/${state.batchName}/crop/run`, { method: "POST" });
+    if (cr && cr.error) { alert(cr.error); return; }
+    state.quads = cr.quads || state.quads;
+    renderCropGrid();
+  } catch (err) {
+    alert(`Re-chop failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "RE-CHOP EVERYTHING";
+  }
 });
 
 $("#btn-crop-save").addEventListener("click", async () => {
-  await api(`/batches/${state.batchName}/crop/manual`, {
-    method: "POST",
-    body: JSON.stringify({ filename: editor.filename, quad: editor.quad }),
-  });
-  state.quads[editor.filename] = editor.quad.map((pt) => [...pt]);
-  $("#editor-wrap").hidden = true;
-  renderCropGrid(); // cache-busted thumbs pick up the recrop
+  try {
+    const r = await api(`/batches/${state.batchName}/crop/manual`, {
+      method: "POST",
+      body: JSON.stringify({ filename: editor.filename, quad: editor.quad }),
+    });
+    if (r && r.error) { alert(r.error); return; } // e.g. box dragged too small
+    state.quads[editor.filename] = editor.quad.map((pt) => [...pt]);
+    $("#editor-wrap").hidden = true;
+    renderCropGrid(); // cache-busted thumbs pick up the recrop
+  } catch (err) {
+    alert(`Save failed: ${err.message}`);
+  }
 });

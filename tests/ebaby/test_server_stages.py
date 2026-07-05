@@ -1,5 +1,8 @@
+import io
 from unittest.mock import patch
 
+import cv2
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,6 +37,91 @@ def test_color_run_advances_to_barcode(mock_cc, client, tmp_path):
     assert resp.status_code == 200
     assert mock_cc.called
     assert batch.read_state(d)["stage"] == "barcode"
+
+
+def test_color_run_passes_plain_jpg_through_to_2_color(client, tmp_path):
+    """A JPG-only batch must not sail through the pipeline with zero output —
+    every later stage reads from 2_color."""
+    d = _make_batch_at_stage(client, tmp_path, "color")
+    img = np.full((40, 30, 3), 128, dtype=np.uint8)
+    cv2.imwrite(str(d / "1_originals/used/a_front.jpg"), img)
+    resp = client.post("/api/batches/run1/color/run")
+    assert resp.status_code == 200
+    assert resp.json()["colored"] == 1
+    assert (d / "2_color/a_front.png").exists()
+
+
+def test_color_run_on_wrong_stage_is_a_clean_409(client, tmp_path):
+    _make_batch_at_stage(client, tmp_path, "upload")
+    resp = client.post("/api/batches/run1/color/run")
+    assert resp.status_code == 409
+    assert "stage" in resp.json()["error"]
+
+
+def test_rename_apply_is_idempotent_no_front_back_swap(client, tmp_path):
+    """Re-running rename on a renamed zone would re-group alphabetically and
+    swap front/back (a_back sorts before a_front). Second call must no-op."""
+    client.post("/api/batches", json={"name": "run1"})
+    for n in ("s1.png", "s2.png", "s3.png"):
+        client.post("/api/batches/run1/upload/used",
+                    files={"file": (n, io.BytesIO(b"x"), "image/png")})
+    first = client.post("/api/batches/run1/rename/apply", json={"zone": "used"}).json()
+    assert first["renamed"] == 3
+    d = batch.batch_dir("run1")
+    assert (d / "1_originals/used/a_front.png").exists()
+    second = client.post("/api/batches/run1/rename/apply", json={"zone": "used"}).json()
+    assert second.get("already_done") is True
+    assert second["renamed"] == 0
+    assert (d / "1_originals/used/a_front.png").exists()  # not swapped
+
+
+def test_upload_strips_path_components_and_dedupes(client, tmp_path):
+    client.post("/api/batches", json={"name": "run1"})
+    r = client.post("/api/batches/run1/upload/used",
+                    files={"file": ("..\\..\\evil.png", io.BytesIO(b"a"), "image/png")})
+    assert r.status_code == 200
+    d = batch.batch_dir("run1")
+    inside = list((d / "1_originals/used").glob("*.png"))
+    assert len(inside) == 1 and ".." not in inside[0].name
+    # duplicate camera filename must not overwrite the first upload
+    client.post("/api/batches/run1/upload/used",
+                files={"file": ("IMG_1.png", io.BytesIO(b"one"), "image/png")})
+    client.post("/api/batches/run1/upload/used",
+                files={"file": ("IMG_1.png", io.BytesIO(b"two"), "image/png")})
+    names = sorted(p.name for p in (d / "1_originals/used").glob("IMG_1*"))
+    assert names == ["IMG_1.png", "IMG_1_2.png"]
+
+
+def test_barcode_manual_sanitizes_digits_and_rejects_junk(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "barcode")
+    ok = client.post("/api/batches/run1/barcode/manual",
+                     json={"key": "a", "digits": " 4006-3813 3393 "})
+    assert ok.status_code == 200
+    assert batch.read_state(d)["barcodes"]["a"] == "400638133393"
+    bad = client.post("/api/batches/run1/barcode/manual",
+                      json={"key": "a", "digits": "not/a/barcode"})
+    assert bad.status_code == 422
+
+
+def test_crop_run_on_unfinished_batch_is_409_not_empty_success(client, tmp_path):
+    _make_batch_at_stage(client, tmp_path, "upload")
+    resp = client.post("/api/batches/run1/crop/run")
+    assert resp.status_code == 409
+
+
+def test_crop_manual_degenerate_quad_is_422(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    (d / "4_renamed").mkdir(parents=True, exist_ok=True)
+    img = np.full((60, 40, 3), 200, dtype=np.uint8)
+    cv2.imwrite(str(d / "4_renamed/Movie_front.png"), img)
+    resp = client.post("/api/batches/run1/crop/manual",
+                       json={"filename": "Movie_front.png",
+                             "quad": [[0, 0], [1, 0], [1, 1], [0, 1]]})
+    assert resp.status_code == 422
+    missing = client.post("/api/batches/run1/crop/manual",
+                          json={"filename": "nope.png",
+                                "quad": [[0, 0], [30, 0], [30, 50], [0, 50]]})
+    assert missing.status_code == 404
 
 
 @patch("ebaby.server.barcode_decode.decode_barcodes", return_value=["400638133393"])
@@ -123,9 +211,10 @@ def test_serve_file_returns_batch_image_and_404s_outside(client, tmp_path):
 @patch("ebaby.server.crop.crop_and_compose")
 @patch("ebaby.server.crop.detect_crop_box")
 def test_crop_run_returns_seeded_quads_per_set(mock_detect, mock_compose, client, tmp_path):
-    import numpy as np
     d = _make_batch_at_stage(client, tmp_path, "crop")
-    (d / "4_renamed/Matrix_front.png").write_bytes(b"x")
+    (d / "4_renamed").mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(d / "4_renamed/Matrix_front.png"),
+                np.full((50, 40, 3), 90, dtype=np.uint8))
     mock_detect.return_value = (np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype="float32"), 0.5)
     mock_compose.return_value = np.zeros((10, 10, 3), dtype="uint8")
     resp = client.post("/api/batches/run1/crop/run")

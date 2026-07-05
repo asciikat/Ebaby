@@ -2,6 +2,7 @@
 current batch's folder and advances state.json. No stage logic lives here —
 this file only sequences calls into ebaby.stages.* and ebaby.batch.
 """
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
@@ -56,20 +57,54 @@ def get_state(name: str):
         return JSONResponse(status_code=404, content={"error": str(e)})
 
 
+def _stage_gate(name, *allowed):
+    """(batch_dir, state, None) when the batch exists and is at an allowed
+    stage; otherwise (.., .., JSONResponse) with a clean 404/409 instead of
+    letting stage modules 500 halfway through their side effects."""
+    d = batch.batch_dir(name)
+    try:
+        state = batch.read_state(d)
+    except batch.BatchError as e:
+        return d, None, JSONResponse(status_code=404, content={"error": str(e)})
+    if allowed and state.get("stage") not in allowed:
+        return d, state, JSONResponse(status_code=409, content={
+            "error": f"batch is at stage '{state.get('stage')}', "
+                     f"this step needs {' or '.join(allowed)}"})
+    return d, state, None
+
+
 @app.post("/api/batches/{name}/upload/{zone}")
 async def upload(name: str, zone: str, file: UploadFile = File(...)):
-    cfg = ZONE_CONFIG[zone]
-    dest_dir = batch.batch_dir(name) / cfg["subdir"]
+    if zone not in ZONE_CONFIG:
+        return JSONResponse(status_code=422, content={"error": f"unknown zone '{zone}'"})
+    d, _state, err = _stage_gate(name, "upload")
+    if err:
+        return err
+    # basename only — an uploaded filename must never walk out of the batch
+    # (split on BOTH separators: the server runs on POSIX, browsers on Windows)
+    safe = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not safe or safe in (".", ".."):
+        return JSONResponse(status_code=422, content={"error": "file has no usable name"})
+    dest_dir = d / ZONE_CONFIG[zone]["subdir"]
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / file.filename
+    dest_path, n = dest_dir / safe, 2
+    while dest_path.exists():  # duplicate camera names must not overwrite
+        dest_path = dest_dir / f"{Path(safe).stem}_{n}{Path(safe).suffix}"
+        n += 1
     dest_path.write_bytes(await file.read())
     return {"saved": str(dest_path)}
 
 
 @app.post("/api/batches/{name}/rename/plan")
 def rename_plan(name: str, req: ZoneRequest):
+    if req.zone not in ZONE_CONFIG:
+        return JSONResponse(status_code=422, content={"error": f"unknown zone '{req.zone}'"})
+    d, _state, err = _stage_gate(name)
+    if err:
+        return err
     cfg = ZONE_CONFIG[req.zone]
-    input_dir = batch.batch_dir(name) / cfg["subdir"]
+    input_dir = d / cfg["subdir"]
+    input_dir.mkdir(parents=True, exist_ok=True)
     try:
         plan = rename_seq.build_plan(input_dir, cfg["set_size"], cfg["scheme"], cfg["labels"])
     except ValueError as e:
@@ -79,17 +114,25 @@ def rename_plan(name: str, req: ZoneRequest):
 
 @app.post("/api/batches/{name}/rename/apply")
 def rename_apply(name: str, req: ZoneRequest):
-    d = batch.batch_dir(name)
+    if req.zone not in ZONE_CONFIG:
+        return JSONResponse(status_code=422, content={"error": f"unknown zone '{req.zone}'"})
+    d, state, err = _stage_gate(name, "upload")
+    if err:
+        return err
+    # Idempotence guard: re-running the rename on an already-renamed zone
+    # would re-group alphabetically and SWAP front/back (a_back sorts first).
+    zones_done = set(state.get("zones_renamed", []))
+    if req.zone in zones_done:
+        return {"renamed": 0, "zones_renamed": sorted(zones_done), "already_done": True}
     cfg = ZONE_CONFIG[req.zone]
     input_dir = d / cfg["subdir"]
+    input_dir.mkdir(parents=True, exist_ok=True)
     try:
         plan = rename_seq.build_plan(input_dir, cfg["set_size"], cfg["scheme"], cfg["labels"])
     except ValueError as e:
         return JSONResponse(status_code=422, content={"error": str(e)})
     count = rename_seq.apply_plan(plan)
 
-    state = batch.read_state(d)
-    zones_done = set(state.get("zones_renamed", []))
     zones_done.add(req.zone)
     state["zones_renamed"] = sorted(zones_done)
     batch.write_state(d, state)
@@ -98,35 +141,54 @@ def rename_apply(name: str, req: ZoneRequest):
     return {"renamed": count, "zones_renamed": sorted(zones_done)}
 
 
+# RAW formats rawpy can decode; plain formats pass through so a JPG batch
+# doesn't silently produce an empty run (2_color feeds every later stage).
+RAW_EXTS = (".nef", ".dng", ".cr2", ".cr3", ".arw", ".raf", ".orf", ".rw2")
+PLAIN_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp")
+
+
 @app.post("/api/batches/{name}/color/run")
 def color_run(name: str):
-    d = batch.batch_dir(name)
+    d, _state, err = _stage_gate(name, "color")
+    if err:
+        return err
     out_dir = d / "2_color"
+    out_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     for zone_dir in (d / "1_originals/used", d / "1_originals/new"):
         for src in sorted(zone_dir.glob("*")):
-            if src.suffix.lower() not in (".nef", ".dng"):
-                continue
+            ext = src.suffix.lower()
             out_path = out_dir / f"{src.stem}.png"
-            color.color_correct_file(src, out_path)
-            count += 1
+            if ext in RAW_EXTS:
+                color.color_correct_file(src, out_path)
+                count += 1
+            elif ext in PLAIN_EXTS:
+                img = cv2.imread(str(src))
+                if img is not None:
+                    cv2.imwrite(str(out_path), img)
+                    count += 1
     batch.advance_stage(d, "color", "barcode")
     return {"colored": count}
 
 
 @app.post("/api/batches/{name}/barcode/run")
 def barcode_run(name: str):
-    d = batch.batch_dir(name)
+    d, state, err = _stage_gate(name, "barcode")
+    if err:
+        return err
     results = {}
     for back_photo in sorted((d / "2_color").glob("*_back*.png")):
         key = back_photo.stem.split("_")[0]
         crop_path = d / "3_barcodes" / f"{back_photo.stem}_barcode.png"
         located = barcode_locate.locate_and_crop(back_photo, crop_path)
-        img = cv2.imread(str(crop_path)) if located else cv2.imread(str(back_photo))
-        codes = barcode_decode.decode_barcodes(img) if located or img is not None else []
+        # prefer the (downscaled) crop even when locate fell back — decoding
+        # the full-resolution original hangs for minutes per miss
+        img = cv2.imread(str(crop_path))
+        if img is None:
+            img = cv2.imread(str(back_photo))
+        codes = barcode_decode.decode_barcodes(img) if (located or img is not None) else []
         results[key] = codes[0] if codes else None
 
-    state = batch.read_state(d)
     state["barcodes"] = results
     batch.write_state(d, state)
     batch.advance_stage(d, "barcode", "ebay")
@@ -140,9 +202,16 @@ class BarcodeManualRequest(BaseModel):
 
 @app.post("/api/batches/{name}/barcode/manual")
 def barcode_manual(name: str, req: BarcodeManualRequest):
-    d = batch.batch_dir(name)
-    state = batch.read_state(d)
-    state.setdefault("barcodes", {})[req.key] = req.digits
+    d, state, err = _stage_gate(name)
+    if err:
+        return err
+    # digits only — this string later becomes a FILENAME when eBay has no
+    # title, so slashes/quotes in here would nest or crash the final rename
+    digits = re.sub(r"\D", "", req.digits)
+    if not 8 <= len(digits) <= 14:
+        return JSONResponse(status_code=422, content={
+            "error": f"'{req.digits}' doesn't look like a barcode (need 8-14 digits)"})
+    state.setdefault("barcodes", {})[req.key] = digits
     batch.write_state(d, state)
     return state
 
@@ -187,8 +256,9 @@ def _write_listing_txt(rows, out_path):
 
 @app.post("/api/batches/{name}/ebay/run")
 def ebay_run(name: str):
-    d = batch.batch_dir(name)
-    state = batch.read_state(d)
+    d, state, err = _stage_gate(name, "ebay")
+    if err:
+        return err
     barcodes = {k: v for k, v in state.get("barcodes", {}).items() if v}
     warning = None
     try:
@@ -198,15 +268,18 @@ def ebay_run(name: str):
         # No creds / eBay down: keep going — files fall back to barcode names.
         warning = f"eBay lookup skipped: {e}"
         rows = [{"Barcode": b} for b in barcodes.values()]
-    ebay.write_csv(rows, d / "Ebay_Details.csv")
-    _write_listing_txt(rows, d / "Ebaby Listings.txt")
+    try:
+        ebay.write_csv(rows, d / "Ebay_Details.csv")
+        _write_listing_txt(rows, d / "Ebaby Listings.txt")
+    except OSError as e:
+        # e.g. the CSV is open in Excel — don't lose the paid eBay fetch
+        warning = (warning or "") + f" Couldn't write listing files ({e}); close them and re-run."
 
-    # tag each row new/used AFTER the CSV is written (extra keys would
-    # break DictWriter): number-keyed sets are factory-fresh, letters used
-    stock_by_barcode = {v: ("new" if k.isdigit() else "used")
-                        for k, v in barcodes.items()}
-    for row in rows:
-        row["Stock"] = stock_by_barcode.get(row.get("Barcode"), "used")
+    # tag each row new/used AFTER the CSV is written (extra keys would break
+    # DictWriter). rows come back in barcodes-dict order, so zip keys to rows
+    # — a barcode sold in BOTH zones must not collapse to one stock label.
+    for (key, _bc), row in zip(barcodes.items(), rows):
+        row["Stock"] = "new" if key.isdigit() else "used"
 
     barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
     key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
@@ -236,10 +309,16 @@ def _collect_sets(color_dir):
 
 @app.post("/api/batches/{name}/crop/run")
 def crop_run(name: str):
-    d = batch.batch_dir(name)
+    # 'done' is allowed too: RE-CHOP on a finished batch is legitimate,
+    # but a batch still at upload/color/barcode gets a clean 409, not {}.
+    d, state, err = _stage_gate(name, "crop", "done")
+    if err:
+        return err
     quads = {}
     for src in sorted((d / "4_renamed").glob("*.png")):
         bgr = cv2.imread(str(src))
+        if bgr is None:
+            continue
         detected = crop.detect_crop_box(bgr)
         if detected is None:
             h, w = bgr.shape[:2]
@@ -252,10 +331,8 @@ def crop_run(name: str):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(out_path), out_bgr)
         quads[src.name] = quad
-    try:
+    if state.get("stage") == "crop":
         batch.advance_stage(d, "crop", "done")
-    except batch.BatchError:
-        pass  # already done — re-chopping an old batch is allowed
     return {"quads": quads}
 
 
@@ -277,11 +354,22 @@ class CropManualRequest(BaseModel):
 
 @app.post("/api/batches/{name}/crop/manual")
 def crop_manual(name: str, req: CropManualRequest):
-    d = batch.batch_dir(name)
-    src = d / "4_renamed" / req.filename
+    d, _state, err = _stage_gate(name)
+    if err:
+        return err
+    src = d / "4_renamed" / Path(req.filename).name
     bgr = cv2.imread(str(src))
-    out_bgr = crop.crop_and_compose(bgr, req.quad)
+    if bgr is None:
+        return JSONResponse(status_code=404,
+                            content={"error": f"no such photo: {req.filename}"})
+    try:
+        out_bgr = crop.crop_and_compose(bgr, req.quad)
+    except (ValueError, cv2.error) as e:
+        # e.g. all four corners dragged into a heap — degenerate warp
+        return JSONResponse(status_code=422, content={
+            "error": f"that crop box is too small or twisted ({e})"})
     out_path = d / "5_cropped" / f"{src.stem}.jpg"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), out_bgr)
     return {"recropped": req.filename}
 

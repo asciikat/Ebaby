@@ -105,7 +105,7 @@ def _search_condition(barcode, condition_ids, headers):
         "limit": "20",
     }
     try:
-        res = _SESSION.get(_SEARCH_URL, headers=headers, params=params)
+        res = _SESSION.get(_SEARCH_URL, headers=headers, params=params, timeout=30)
         res.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise EbayUnavailable(f"can't reach eBay ({_root_cause(e)})") from e
@@ -132,7 +132,7 @@ def _search_condition(barcode, condition_ids, headers):
 def _fetch_item_specifics(item_id, headers):
     encoded = urllib.parse.quote(item_id)
     try:
-        res = _SESSION.get(f"{_ITEM_URL}{encoded}", headers=headers)
+        res = _SESSION.get(f"{_ITEM_URL}{encoded}", headers=headers, timeout=30)
         res.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise EbayUnavailable(f"can't reach eBay ({_root_cause(e)})") from e
@@ -193,7 +193,8 @@ def fetch_all(barcodes, token, delay=0.5):
 
 def write_csv(rows, out_path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, mode="w", newline="", encoding="utf-8") as f:
+    # utf-8-sig: without the BOM, Excel renders accented titles as mojibake
+    with open(out_path, mode="w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
         writer.writeheader()
         for row in rows:
