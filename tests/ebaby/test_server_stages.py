@@ -222,3 +222,44 @@ def test_crop_run_returns_seeded_quads_per_set(mock_detect, mock_compose, client
     body = resp.json()
     assert "Matrix_front.png" in body["quads"]
     assert batch.read_state(d)["stage"] == "done"
+
+
+@patch("ebaby.server.crop.crop_and_compose")
+@patch("ebaby.server.crop.detect_crop_box")
+def test_crop_run_persists_quads_and_progress_in_state(mock_detect, mock_compose, client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    (d / "4_renamed").mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(d / "4_renamed/Movie_front.png"),
+                np.full((50, 40, 3), 90, dtype=np.uint8))
+    mock_detect.return_value = (np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype="float32"), 0.5)
+    mock_compose.return_value = np.zeros((10, 10, 3), dtype="uint8")
+    client.post("/api/batches/run1/crop/run")
+    s = batch.read_state(d)
+    assert "Movie_front.png" in s["quads"]          # refresh-resume source
+    assert s["progress"] == {"stage": "crop", "done": 1, "total": 1}
+
+
+@patch("ebaby.server.color.color_correct_file")
+def test_color_run_writes_progress_counter(mock_cc, client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "color")
+    (d / "1_originals/used/a_front.dng").write_bytes(b"x")
+    (d / "1_originals/used/a_back.dng").write_bytes(b"x")
+    client.post("/api/batches/run1/color/run")
+    s = batch.read_state(d)
+    assert s["progress"] == {"stage": "color", "done": 2, "total": 2}
+
+
+@patch("ebaby.server.ebay.write_csv")
+@patch("ebaby.server.ebay.fetch_all")
+@patch("ebaby.server.ebay.get_token", return_value="tok")
+def test_ebay_run_persists_rows_for_resume(mock_token, mock_fetch, mock_write, client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"a": "400638133393"}
+    batch.write_state(d, state)
+    mock_fetch.return_value = [{"Barcode": "400638133393", "Image Set Name": "Matrix",
+                                "Title": "The Matrix"}]
+    client.post("/api/batches/run1/ebay/run")
+    s = batch.read_state(d)
+    assert s["ebay_rows"][0]["Title"] == "The Matrix"
+    assert s["listing_txt"].endswith("Ebaby Listings.txt")

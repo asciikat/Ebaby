@@ -147,24 +147,35 @@ RAW_EXTS = (".nef", ".dng", ".cr2", ".cr3", ".arw", ".raf", ".orf", ".rw2")
 PLAIN_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp")
 
 
+def _set_progress(d, state, stage, done, total):
+    """Written per file so the browser can poll /state and show 3/7 instead
+    of staring at a spinner for minutes."""
+    state["progress"] = {"stage": stage, "done": done, "total": total}
+    batch.write_state(d, state)
+
+
 @app.post("/api/batches/{name}/color/run")
 def color_run(name: str):
-    d, _state, err = _stage_gate(name, "color")
+    d, state, err = _stage_gate(name, "color")
     if err:
         return err
     out_dir = d / "2_color"
     out_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
+    todo = []
     for zone_dir in (d / "1_originals/used", d / "1_originals/new"):
         for src in sorted(zone_dir.glob("*")):
-            ext = src.suffix.lower()
-            out_path = out_dir / f"{src.stem}.png"
-            if ext in RAW_EXTS:
-                color.color_correct_file(src, out_path)
-                count += 1
-            elif ext in PLAIN_EXTS:
-                if color.color_correct_plain_file(src, out_path):
-                    count += 1
+            if src.suffix.lower() in RAW_EXTS + PLAIN_EXTS:
+                todo.append(src)
+    count = 0
+    _set_progress(d, state, "color", 0, len(todo))
+    for i, src in enumerate(todo, 1):
+        out_path = out_dir / f"{src.stem}.png"
+        if src.suffix.lower() in RAW_EXTS:
+            color.color_correct_file(src, out_path)
+            count += 1
+        elif color.color_correct_plain_file(src, out_path):
+            count += 1
+        _set_progress(d, state, "color", i, len(todo))
     batch.advance_stage(d, "color", "barcode")
     return {"colored": count}
 
@@ -174,8 +185,10 @@ def barcode_run(name: str):
     d, state, err = _stage_gate(name, "barcode")
     if err:
         return err
-    results = {}
-    for back_photo in sorted((d / "2_color").glob("*_back*.png")):
+    results, crops = {}, {}
+    backs = sorted((d / "2_color").glob("*_back*.png"))
+    _set_progress(d, state, "barcode", 0, len(backs))
+    for i, back_photo in enumerate(backs, 1):
         key = back_photo.stem.split("_")[0]
         crop_path = d / "3_barcodes" / f"{back_photo.stem}_barcode.png"
         located = barcode_locate.locate_and_crop(back_photo, crop_path)
@@ -186,11 +199,15 @@ def barcode_run(name: str):
             img = cv2.imread(str(back_photo))
         codes = barcode_decode.decode_barcodes(img) if (located or img is not None) else []
         results[key] = codes[0] if codes else None
+        if crop_path.is_file():
+            crops[key] = crop_path.name  # fix screen shows the actual barcode
+        _set_progress(d, state, "barcode", i, len(backs))
 
     state["barcodes"] = results
+    state["barcode_crops"] = crops
     batch.write_state(d, state)
     batch.advance_stage(d, "barcode", "ebay")
-    return {"results": results}
+    return {"results": results, "crops": crops}
 
 
 class BarcodeManualRequest(BaseModel):
@@ -289,11 +306,15 @@ def ebay_run(name: str):
                                              key_to_title, d / "4_renamed")
     rename_title.apply_renames(plan)
     state["rename_notes"] = notes
+    # persisted so a page refresh can rebuild the results screen (resume)
+    state["ebay_rows"] = rows
+    state["ebay_warning"] = warning
+    state["listing_txt"] = _windows_path(d / "Ebaby Listings.txt")
+    state["folder"] = _windows_path(d)
     batch.write_state(d, state)
     batch.advance_stage(d, "ebay", "crop")
     return {"rows": rows, "notes": notes, "warning": warning,
-            "listing_txt": _windows_path(d / "Ebaby Listings.txt"),
-            "folder": _windows_path(d)}
+            "listing_txt": state["listing_txt"], "folder": state["folder"]}
 
 
 def _collect_sets(color_dir):
@@ -313,7 +334,9 @@ def crop_run(name: str):
     if err:
         return err
     quads = {}
-    for src in sorted((d / "4_renamed").glob("*.png")):
+    srcs = sorted((d / "4_renamed").glob("*.png"))
+    _set_progress(d, state, "crop", 0, len(srcs))
+    for i, src in enumerate(srcs, 1):
         bgr = cv2.imread(str(src))
         if bgr is None:
             continue
@@ -329,6 +352,9 @@ def crop_run(name: str):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(out_path), out_bgr)
         quads[src.name] = quad
+        _set_progress(d, state, "crop", i, len(srcs))
+    state["quads"] = quads  # persisted for refresh-resume of the chop shop
+    batch.write_state(d, state)
     if state.get("stage") == "crop":
         batch.advance_stage(d, "crop", "done")
     return {"quads": quads}
@@ -369,6 +395,8 @@ def crop_manual(name: str, req: CropManualRequest):
     out_path = d / "5_cropped" / f"{src.stem}.jpg"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), out_bgr)
+    _state.setdefault("quads", {})[src.name] = req.quad
+    batch.write_state(d, _state)
     return {"recropped": req.filename}
 
 

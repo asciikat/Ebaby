@@ -25,9 +25,49 @@ async function api(path, opts = {}) {
   return data;
 }
 
+const RAIL = [
+  ["upload", "LOAD UP"],
+  ["color", "CLEAN"],
+  ["barcode", "INTERROGATE"],
+  ["ebay", "FENCE"],
+  ["crop", "CHOP"],
+  ["done", "PAID"],
+];
+
+function setRail(stage) {
+  const rail = $("#stage-rail");
+  rail.innerHTML = "";
+  const idx = RAIL.findIndex(([k]) => k === stage);
+  RAIL.forEach(([k, label], i) => {
+    const chip = document.createElement("span");
+    chip.textContent = label;
+    if (i < idx) chip.className = "done";
+    if (i === idx) chip.className = "active";
+    rail.appendChild(chip);
+  });
+}
+
 function show(id) {
   for (const el of document.querySelectorAll("section[id^='screen-']")) {
     el.hidden = el.id !== id;
+  }
+}
+
+/* While a slow stage runs, poll /state so the mission log counts 3/7
+   instead of hanging silently for minutes. */
+async function withProgress(promise, step, text) {
+  const timer = setInterval(async () => {
+    try {
+      const s = await api(`/batches/${state.batchName}/state`);
+      const p = s && s.progress;
+      if (p && p.total) step.li.textContent = `${text} — ${p.done}/${p.total}`;
+      if (s && s.stage) setRail(s.stage);
+    } catch { /* polling is best-effort */ }
+  }, 1500);
+  try {
+    return await promise;
+  } finally {
+    clearInterval(timer);
   }
 }
 
@@ -37,7 +77,8 @@ function logStep(text) {
   li.className = "doing";
   $("#mission-log").appendChild(li);
   return {
-    done(extra) { li.className = "done"; if (extra) li.textContent = `${text} — ${extra}`; },
+    li,
+    done(extra) { li.className = "done"; li.textContent = extra ? `${text} — ${extra}` : text; },
     fail(extra) { li.className = "fail"; if (extra) li.textContent = `${text} — ${extra}`; },
   };
 }
@@ -128,31 +169,43 @@ async function runJob() {
   }
   step.done();
 
-  // colour correction
-  step = logStep("Cleaning the goods so they look legit (the slow burn)");
-  const c = checked(await api(`/batches/${state.batchName}/color/run`, { method: "POST" }),
-    "colour stage");
-  step.done(`${c.colored} processed`);
+  await runFromColor();
+}
 
-  // barcode scan
-  step = logStep("Interrogating the barcodes");
-  const b = checked(await api(`/batches/${state.batchName}/barcode/run`, { method: "POST" }),
-    "barcode stage");
+/* the automated chain from colour onward — also the resume entry point */
+async function runFromColor() {
+  show("screen-progress");
+  setRail("color");
+  let step = logStep("Cleaning the goods so they look legit (the slow burn)");
+  const c = checked(await withProgress(
+    api(`/batches/${state.batchName}/color/run`, { method: "POST" }),
+    step, "Cleaning the goods"), "colour stage");
+  step.done(`${c.colored} processed`);
+  await runFromBarcode();
+}
+
+async function runFromBarcode() {
+  show("screen-progress");
+  setRail("barcode");
+  const step = logStep("Interrogating the barcodes");
+  const b = checked(await withProgress(
+    api(`/batches/${state.batchName}/barcode/run`, { method: "POST" }),
+    step, "Interrogating the barcodes"), "barcode stage");
   const results = b.results || {};
   const missed = Object.entries(results).filter(([, v]) => !v);
   step.done(`${Object.keys(results).length - missed.length} hit, ${missed.length} missed`);
 
   if (missed.length) {
-    renderBarcodeTable(results);
+    renderBarcodeTable(results, b.crops || {});
     show("screen-barcode");
-    return; // continues from the CARRY ON button
+    return; // continues from the ROLL OUT button
   }
   await finishJob();
 }
 
 /* ---------- 3. barcode fixes (only when needed) ---------- */
 
-function renderBarcodeTable(results) {
+function renderBarcodeTable(results, crops) {
   const tbody = $("#barcode-table tbody");
   tbody.innerHTML = "";
   for (const [key, digits] of Object.entries(results)) {
@@ -161,7 +214,11 @@ function renderBarcodeTable(results) {
       ? `<span class="got">${digits}</span>`
       : `<span class="miss">MISSED</span>`;
     const fix = digits ? "" : `<input type="text" inputmode="numeric" data-fix-key="${key}" placeholder="type the digits" />`;
-    tr.innerHTML = `<td>${key.toUpperCase()}</td><td>${status}</td><td>${fix}</td>`;
+    // show the barcode crop so the digits can be read OFF THE SCREEN
+    const evidence = crops && crops[key]
+      ? `<img class="evidence" src="/api/files/${state.batchName}/3_barcodes/${crops[key]}" onerror="this.remove()" />`
+      : "";
+    tr.innerHTML = `<td>${key.toUpperCase()}</td><td>${evidence}</td><td>${status}</td><td>${fix}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -196,17 +253,21 @@ $("#btn-barcode-continue").addEventListener("click", async () => {
 /* ---------- 4. eBay + title rename, then open the cropper ---------- */
 
 async function finishJob() {
+  setRail("ebay");
   let step = logStep("Fencing the goods on eBay + issuing final identities");
   const e = await api(`/batches/${state.batchName}/ebay/run`, { method: "POST" });
   if (e && e.error) throw new Error(e.error);
   if (e.warning) step.fail(e.warning); else step.done();
 
+  setRail("crop");
   step = logStep("Running everything through the chop shop");
-  const cr = checked(await api(`/batches/${state.batchName}/crop/run`, { method: "POST" }),
-    "chop shop");
+  const cr = checked(await withProgress(
+    api(`/batches/${state.batchName}/crop/run`, { method: "POST" }),
+    step, "Chopping"), "chop shop");
   state.quads = cr.quads || {};
   step.done(`${Object.keys(state.quads).length} photos`);
 
+  setRail("done");
   renderEbayPanel(e);
   renderCropGrid();
   show("screen-crop");
@@ -290,6 +351,7 @@ const editor = {
 };
 
 function openEditor(filename) {
+  $("#editor-title").textContent = `ADJUSTING: ${filename}`;
   editor.filename = filename;
   editor.quad = (state.quads[filename] || []).map((pt) => [...pt]);
   const img = new Image();
@@ -395,3 +457,62 @@ $("#btn-crop-save").addEventListener("click", async () => {
     alert(`Save failed: ${err.message}`);
   }
 });
+
+$("#btn-new-job").addEventListener("click", () => location.reload());
+
+/* ---------- 6. resume: a page refresh must never orphan a job ---------- */
+
+function ebayPanelFromState(s) {
+  return { rows: s.ebay_rows || [], warning: s.ebay_warning,
+           listing_txt: s.listing_txt, folder: s.folder };
+}
+
+async function resumeBatch(name, s) {
+  state.batchName = name;
+  if (s.stage === "color") { await runFromColor(); return; }
+  if (s.stage === "barcode") { await runFromBarcode(); return; }
+  if (s.stage === "ebay") {
+    const barcodes = s.barcodes || {};
+    const missed = Object.entries(barcodes).filter(([, v]) => !v);
+    if (missed.length) {
+      renderBarcodeTable(barcodes, s.barcode_crops || {});
+      show("screen-barcode");
+      setRail("barcode");
+      return;
+    }
+    show("screen-progress");
+    await finishJob();
+    return;
+  }
+  // crop / done: rebuild the results + chop shop from persisted state
+  renderEbayPanel(ebayPanelFromState(s));
+  if (s.quads && Object.keys(s.quads).length) {
+    state.quads = s.quads;
+  } else {
+    const cr = await api(`/batches/${name}/crop/run`, { method: "POST" });
+    state.quads = (cr && cr.quads) || {};
+  }
+  renderCropGrid();
+  setRail("done");
+  show("screen-crop");
+}
+
+async function offerResume() {
+  try {
+    const names = await api("/batches");
+    if (!Array.isArray(names) || !names.length) return;
+    const latest = names[names.length - 1]; // run-<timestamp> sorts by time
+    const s = await api(`/batches/${latest}/state`);
+    if (!s || s.error || s.stage === "upload") return;
+    $("#resume-text").textContent =
+      `Unfinished business: ${latest} (stage: ${s.stage}). `;
+    $("#resume-banner").hidden = false;
+    $("#btn-resume").addEventListener("click", () => {
+      $("#resume-banner").hidden = true;
+      resumeBatch(latest, s).catch(busted);
+    }, { once: true });
+  } catch { /* no server-side history — fresh start */ }
+}
+
+setRail("upload");
+offerResume();

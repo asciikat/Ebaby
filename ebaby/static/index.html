@@ -13,6 +13,10 @@
 
   <!-- 1. UPLOAD -->
   <section id="screen-upload">
+    <div id="resume-banner" class="panel" hidden>
+      <span id="resume-text"></span>
+      <button id="btn-resume" class="pick">PICK UP WHERE I LEFT OFF</button>
+    </div>
     <div class="dropzones">
       <div class="dropzone" data-zone="used">
         <h3>HOT MERCHANDISE</h3>
@@ -45,7 +49,7 @@
     <p class="hint">The scanner leaned on them but they kept quiet. Read the digits
        printed under the barcode and type them in yourself &mdash; old school.</p>
     <table id="barcode-table">
-      <thead><tr><th>DISC</th><th>WHAT IT SAID</th><th>MAKE IT TALK</th></tr></thead>
+      <thead><tr><th>DISC</th><th>THE EVIDENCE</th><th>WHAT IT SAID</th><th>MAKE IT TALK</th></tr></thead>
       <tbody></tbody>
     </table>
     <button id="btn-barcode-continue" class="big-btn">ROLL OUT</button>
@@ -70,12 +74,15 @@
     <button id="btn-rechop" class="ghost-btn">RE-CHOP EVERYTHING</button>
     <div id="crop-grid"></div>
     <div id="editor-wrap" hidden>
+      <h3 id="editor-title" class="hint"></h3>
       <canvas id="crop-editor" width="700" height="900"></canvas>
       <div class="editor-buttons">
         <button id="btn-crop-save" class="big-btn">SAVE CROP</button>
         <button id="btn-crop-cancel" class="ghost-btn">WALK AWAY</button>
       </div>
     </div>
+
+    <button id="btn-new-job" class="big-btn" style="margin-top:1.5rem">START ANOTHER JOB</button>
   </section>
 
   <script src="/app.js"></script>
