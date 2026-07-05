@@ -9,8 +9,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import cv2
+
 from ebaby import batch
-from ebaby.stages import rename_seq
+from ebaby.stages import barcode_decode, barcode_locate, color, crop, ebay
+from ebaby.stages import rename_seq, rename_title
 
 app = FastAPI(title="Ebaby")
 
@@ -93,6 +96,126 @@ def rename_apply(name: str, req: ZoneRequest):
     if zones_done >= set(ZONE_CONFIG):
         batch.advance_stage(d, "upload", "color")
     return {"renamed": count, "zones_renamed": sorted(zones_done)}
+
+
+@app.post("/api/batches/{name}/color/run")
+def color_run(name: str):
+    d = batch.batch_dir(name)
+    out_dir = d / "2_color"
+    count = 0
+    for zone_dir in (d / "1_originals/used", d / "1_originals/new"):
+        for src in sorted(zone_dir.glob("*")):
+            if src.suffix.lower() not in (".nef", ".dng"):
+                continue
+            out_path = out_dir / f"{src.stem}.png"
+            color.color_correct_file(src, out_path)
+            count += 1
+    batch.advance_stage(d, "color", "barcode")
+    return {"colored": count}
+
+
+@app.post("/api/batches/{name}/barcode/run")
+def barcode_run(name: str):
+    d = batch.batch_dir(name)
+    results = {}
+    for back_photo in sorted((d / "2_color").glob("*_back*.png")):
+        key = back_photo.stem.split("_")[0]
+        crop_path = d / "3_barcodes" / f"{back_photo.stem}_barcode.png"
+        located = barcode_locate.locate_and_crop(back_photo, crop_path)
+        img = cv2.imread(str(crop_path)) if located else cv2.imread(str(back_photo))
+        codes = barcode_decode.decode_barcodes(img) if located or img is not None else []
+        results[key] = codes[0] if codes else None
+
+    state = batch.read_state(d)
+    state["barcodes"] = results
+    batch.write_state(d, state)
+    batch.advance_stage(d, "barcode", "ebay")
+    return {"results": results}
+
+
+class BarcodeManualRequest(BaseModel):
+    key: str
+    digits: str
+
+
+@app.post("/api/batches/{name}/barcode/manual")
+def barcode_manual(name: str, req: BarcodeManualRequest):
+    d = batch.batch_dir(name)
+    state = batch.read_state(d)
+    state.setdefault("barcodes", {})[req.key] = req.digits
+    batch.write_state(d, state)
+    return state
+
+
+@app.post("/api/batches/{name}/ebay/run")
+def ebay_run(name: str):
+    d = batch.batch_dir(name)
+    state = batch.read_state(d)
+    barcodes = {k: v for k, v in state.get("barcodes", {}).items() if v}
+    token = ebay.get_token()
+    rows = ebay.fetch_all(list(barcodes.values()), token)
+    ebay.write_csv(rows, d / "Ebay_Details.csv")
+
+    barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
+    key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
+    state["titles"] = key_to_title
+    batch.write_state(d, state)
+
+    sets = _collect_sets(d / "2_color")
+    plan, notes = rename_title.plan_renames(sets, state.get("barcodes", {}),
+                                             key_to_title, d / "4_renamed")
+    rename_title.apply_renames(plan)
+    state["rename_notes"] = notes
+    batch.write_state(d, state)
+    batch.advance_stage(d, "ebay", "crop")
+    return {"rows": rows, "notes": notes}
+
+
+def _collect_sets(color_dir):
+    """{set_key: [(role, path), ...]} from <key>_<role>.png files."""
+    sets = {}
+    for p in sorted(color_dir.glob("*.png")):
+        key, _, role = p.stem.partition("_")
+        sets.setdefault(key, []).append((role, p))
+    return sets
+
+
+@app.post("/api/batches/{name}/crop/run")
+def crop_run(name: str):
+    d = batch.batch_dir(name)
+    quads = {}
+    for src in sorted((d / "4_renamed").glob("*.png")):
+        bgr = cv2.imread(str(src))
+        detected = crop.detect_crop_box(bgr)
+        if detected is None:
+            h, w = bgr.shape[:2]
+            quad = [[0, 0], [w, 0], [w, h], [0, h]]
+        else:
+            quad, _coverage = detected
+            quad = quad.tolist()
+        out_bgr = crop.crop_and_compose(bgr, quad)
+        out_path = d / "5_cropped" / f"{src.stem}.jpg"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_path), out_bgr)
+        quads[src.name] = quad
+    batch.advance_stage(d, "crop", "done")
+    return {"quads": quads}
+
+
+class CropManualRequest(BaseModel):
+    filename: str
+    quad: list
+
+
+@app.post("/api/batches/{name}/crop/manual")
+def crop_manual(name: str, req: CropManualRequest):
+    d = batch.batch_dir(name)
+    src = d / "4_renamed" / req.filename
+    bgr = cv2.imread(str(src))
+    out_bgr = crop.crop_and_compose(bgr, req.quad)
+    out_path = d / "5_cropped" / f"{src.stem}.jpg"
+    cv2.imwrite(str(out_path), out_bgr)
+    return {"recropped": req.filename}
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="static")
