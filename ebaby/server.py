@@ -245,7 +245,10 @@ def crop_run(name: str):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(out_path), out_bgr)
         quads[src.name] = quad
-    batch.advance_stage(d, "crop", "done")
+    try:
+        batch.advance_stage(d, "crop", "done")
+    except batch.BatchError:
+        pass  # already done — re-chopping an old batch is allowed
     return {"quads": quads}
 
 

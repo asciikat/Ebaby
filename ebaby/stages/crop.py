@@ -100,15 +100,14 @@ def compose_on_white(rgba, size=1600):
     return canvas
 
 
-def crop_and_compose(bgr, quad, size=1600, rembg_model="isnet-general-use"):
-    """Given a (possibly user-adjusted) quad, warp+matte+compose to the final
-    listing photo. Used both for the initial auto-crop and for re-cropping
-    after a manual corner edit in the browser."""
+def crop_and_compose(bgr, quad, size=1600):
+    """Given a (possibly user-adjusted) quad, warp the case out and centre it
+    on the white square. NO matting here — rembg is only for FINDING the case
+    (detect_crop_box); running it on the warped crop erases white parts of
+    the actual cover art. The warp already isolates the case exactly.
+    Channels stay BGR end-to-end because the caller writes with cv2.imwrite."""
     warped_bgr = warp_to_quad(bgr, quad)
     if warped_bgr is None:
         raise ValueError("quad produced a degenerate warp (too small)")
-    alpha = rembg_matte(warped_bgr, rembg_model)
-    if alpha is None:
-        alpha = np.full(warped_bgr.shape[:2], 255, dtype=np.uint8)
-    rgba = np.dstack([cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2RGB), alpha])
-    return compose_on_white(rgba, size=size)
+    alpha = np.full(warped_bgr.shape[:2], 255, dtype=np.uint8)
+    return compose_on_white(np.dstack([warped_bgr, alpha]), size=size)

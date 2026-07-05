@@ -299,6 +299,17 @@ window.addEventListener("mouseup", () => { editor.dragIndex = -1; });
 
 $("#btn-crop-cancel").addEventListener("click", () => { $("#editor-wrap").hidden = true; });
 
+$("#btn-rechop").addEventListener("click", async () => {
+  const btn = $("#btn-rechop");
+  btn.disabled = true;
+  btn.textContent = "CHOPPING…";
+  const cr = await api(`/batches/${state.batchName}/crop/run`, { method: "POST" });
+  state.quads = cr.quads || state.quads;
+  renderCropGrid();
+  btn.disabled = false;
+  btn.textContent = "RE-CHOP EVERYTHING";
+});
+
 $("#btn-crop-save").addEventListener("click", async () => {
   await api(`/batches/${state.batchName}/crop/manual`, {
     method: "POST",
