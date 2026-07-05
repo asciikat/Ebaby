@@ -157,13 +157,31 @@ def _windows_path(p):
 
 
 def _write_listing_txt(rows, out_path):
-    lines = ["EBABY LISTINGS", "=" * 40, ""]
-    for row in rows:
+    lines = [
+        "=" * 52,
+        "  E B A B Y  —  T H E  S C O R E",
+        "=" * 52,
+        "  Plastic in. Paper out.",
+        "  Every disc below is one step closer to guns,",
+        "  drugs and hookers money.*",
+        "",
+        "  * or rent. Let's be honest, it's rent.",
+        "=" * 52,
+        "",
+    ]
+    for i, row in enumerate(rows, 1):
+        lines.append(f"--- SCORE #{i} " + "-" * 36)
         lines.append(f"Barcode: {row.get('Barcode', '?')}")
         for k, v in row.items():
             if k != "Barcode" and v:
                 lines.append(f"  {k}: {v}")
         lines.append("")
+    lines += [
+        "=" * 52,
+        f"  {len(rows)} disc(s) fenced. Now go list 'em on eBay",
+        "  before the heat comes down.",
+        "=" * 52,
+    ]
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -172,8 +190,14 @@ def ebay_run(name: str):
     d = batch.batch_dir(name)
     state = batch.read_state(d)
     barcodes = {k: v for k, v in state.get("barcodes", {}).items() if v}
-    token = ebay.get_token()
-    rows = ebay.fetch_all(list(barcodes.values()), token)
+    warning = None
+    try:
+        token = ebay.get_token()
+        rows = ebay.fetch_all(list(barcodes.values()), token)
+    except (RuntimeError, ebay.EbayUnavailable) as e:
+        # No creds / eBay down: keep going — files fall back to barcode names.
+        warning = f"eBay lookup skipped: {e}"
+        rows = [{"Barcode": b} for b in barcodes.values()]
     ebay.write_csv(rows, d / "Ebay_Details.csv")
     _write_listing_txt(rows, d / "Ebaby Listings.txt")
 
@@ -189,7 +213,7 @@ def ebay_run(name: str):
     state["rename_notes"] = notes
     batch.write_state(d, state)
     batch.advance_stage(d, "ebay", "crop")
-    return {"rows": rows, "notes": notes,
+    return {"rows": rows, "notes": notes, "warning": warning,
             "listing_txt": _windows_path(d / "Ebaby Listings.txt"),
             "folder": _windows_path(d)}
 

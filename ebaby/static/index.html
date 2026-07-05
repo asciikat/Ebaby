@@ -8,28 +8,28 @@
 <body>
   <header>
     <h1 class="logo">EBABY</h1>
-    <div class="tagline">GET IN. SCAN. GET PAID.</div>
+    <div class="tagline">PLASTIC IN. PAPER OUT.</div>
   </header>
 
   <!-- 1. UPLOAD -->
   <section id="screen-upload">
     <div class="dropzones">
       <div class="dropzone" data-zone="used">
-        <h3>USED STOCK</h3>
-        <p class="hint">3 shots per DVD &mdash; front / back / inside</p>
+        <h3>HOT MERCHANDISE</h3>
+        <p class="hint">Used discs &mdash; 3 shots each: front / back / inside. No exceptions.</p>
         <input type="file" id="input-used" multiple accept="image/*,.dng,.nef" hidden />
-        <button class="pick" data-pick="used">ADD PHOTOS</button>
+        <button class="pick" data-pick="used">LOAD THE GOODS</button>
         <div class="file-count" id="count-used">0 photos</div>
       </div>
       <div class="dropzone" data-zone="new">
-        <h3>BRAND NEW</h3>
-        <p class="hint">2 shots per DVD &mdash; front / back</p>
+        <h3>FACTORY FRESH</h3>
+        <p class="hint">Still in the shrink wrap &mdash; 2 shots each: front / back.</p>
         <input type="file" id="input-new" multiple accept="image/*,.dng,.nef" hidden />
-        <button class="pick" data-pick="new">ADD PHOTOS</button>
+        <button class="pick" data-pick="new">LOAD THE GOODS</button>
         <div class="file-count" id="count-new">0 photos</div>
       </div>
     </div>
-    <button id="btn-start" class="big-btn" disabled>START THE JOB</button>
+    <button id="btn-start" class="big-btn" disabled>RUN THE HUSTLE</button>
     <div id="upload-error" class="error"></div>
   </section>
 
@@ -41,32 +41,34 @@
 
   <!-- 3. BARCODE FIX (only if some missed) -->
   <section id="screen-barcode" hidden>
-    <h2 class="mission wasted">BARCODES GOT AWAY</h2>
-    <p class="hint">Type the digits printed under the barcode for each miss, then carry on.</p>
+    <h2 class="mission wasted">SOME BARCODES WOULDN'T TALK</h2>
+    <p class="hint">The scanner leaned on them but they kept quiet. Read the digits
+       printed under the barcode and type them in yourself &mdash; old school.</p>
     <table id="barcode-table">
-      <thead><tr><th>DVD</th><th>SCANNED</th><th>FIX IT</th></tr></thead>
+      <thead><tr><th>DISC</th><th>WHAT IT SAID</th><th>MAKE IT TALK</th></tr></thead>
       <tbody></tbody>
     </table>
-    <button id="btn-barcode-continue" class="big-btn">CARRY ON</button>
+    <button id="btn-barcode-continue" class="big-btn">ROLL OUT</button>
   </section>
 
-  <!-- 4. CROPPER (opens only after names + eBay are sorted) -->
+  <!-- 4. CHOP SHOP (opens only after names + eBay are sorted) -->
   <section id="screen-crop" hidden>
-    <h2 class="mission passed">LISTINGS SORTED</h2>
+    <h2 class="mission passed">MISSION PASSED &mdash; RESPECT +</h2>
     <div id="listing-info" class="panel"></div>
-    <details id="ebay-details"><summary>EBAY LOOKUP RESULTS</summary>
+    <details id="ebay-details"><summary>THE FENCE'S VALUATION (EBAY)</summary>
       <div class="table-scroll"><table id="ebay-table"></table></div>
     </details>
 
-    <h2 class="mission">THE CROPPER</h2>
-    <p class="hint">Crops never rename anything &mdash; names are locked before you get here.
-       Click a photo to adjust its corners, then SAVE.</p>
+    <h2 class="mission">THE CHOP SHOP</h2>
+    <p class="hint">The chop shop chops. It never touches the paperwork &mdash;
+       every file keeps the name it walked in with. Click a photo to adjust
+       its corners, then SAVE.</p>
     <div id="crop-grid"></div>
     <div id="editor-wrap" hidden>
       <canvas id="crop-editor" width="700" height="900"></canvas>
       <div class="editor-buttons">
         <button id="btn-crop-save" class="big-btn">SAVE CROP</button>
-        <button id="btn-crop-cancel" class="ghost-btn">CANCEL</button>
+        <button id="btn-crop-cancel" class="ghost-btn">WALK AWAY</button>
       </div>
     </div>
   </section>

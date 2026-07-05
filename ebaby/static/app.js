@@ -74,7 +74,7 @@ for (const zone of ["used", "new"]) {
 
 $("#btn-start").addEventListener("click", () => {
   runJob().catch((err) => {
-    logStep("JOB FAILED").fail(err.message);
+    logStep("BUSTED").fail(err.message);
   });
 });
 
@@ -83,7 +83,7 @@ async function runJob() {
   $("#mission-log").innerHTML = "";
 
   // create batch
-  let step = logStep("Opening a new job");
+  let step = logStep("Casing the joint");
   state.batchName = `run-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
   const created = await api("/batches", {
     method: "POST", body: JSON.stringify({ name: state.batchName }),
@@ -92,7 +92,7 @@ async function runJob() {
   step.done(state.batchName);
 
   // upload
-  step = logStep("Uploading photos");
+  step = logStep("Loading the merchandise into the van");
   for (const zone of ["used", "new"]) {
     for (const file of state.pending[zone]) {
       const form = new FormData();
@@ -103,7 +103,7 @@ async function runJob() {
   step.done(`${state.pending.used.length} used + ${state.pending.new.length} new`);
 
   // sequential rename (a_front... / 01_front...)
-  step = logStep("Naming the shots");
+  step = logStep("Forging the first set of papers");
   for (const zone of ["used", "new"]) {
     const r = await api(`/batches/${state.batchName}/rename/apply`, {
       method: "POST", body: JSON.stringify({ zone }),
@@ -113,12 +113,12 @@ async function runJob() {
   step.done();
 
   // colour correction
-  step = logStep("Colour-correcting RAW shots (this is the slow one)");
+  step = logStep("Cleaning the goods so they look legit (the slow burn)");
   const c = await api(`/batches/${state.batchName}/color/run`, { method: "POST" });
   step.done(`${c.colored} processed`);
 
   // barcode scan
-  step = logStep("Scanning barcodes");
+  step = logStep("Interrogating the barcodes");
   const b = await api(`/batches/${state.batchName}/barcode/run`, { method: "POST" });
   const results = b.results || {};
   const missed = Object.entries(results).filter(([, v]) => !v);
@@ -159,18 +159,18 @@ $("#btn-barcode-continue").addEventListener("click", async () => {
     }
   }
   show("screen-progress");
-  await finishJob().catch((err) => logStep("JOB FAILED").fail(err.message));
+  await finishJob().catch((err) => logStep("BUSTED").fail(err.message));
 });
 
 /* ---------- 4. eBay + title rename, then open the cropper ---------- */
 
 async function finishJob() {
-  let step = logStep("Looking titles up on eBay + renaming to final names");
+  let step = logStep("Fencing the goods on eBay + issuing final identities");
   const e = await api(`/batches/${state.batchName}/ebay/run`, { method: "POST" });
   if (e && e.error) throw new Error(e.error);
-  step.done();
+  if (e.warning) step.fail(e.warning); else step.done();
 
-  step = logStep("Auto-cropping every photo");
+  step = logStep("Running everything through the chop shop");
   const cr = await api(`/batches/${state.batchName}/crop/run`, { method: "POST" });
   state.quads = cr.quads || {};
   step.done(`${Object.keys(state.quads).length} photos`);
@@ -181,7 +181,9 @@ async function finishJob() {
 }
 
 function renderEbayPanel(e) {
-  $("#listing-info").innerHTML =
+  const warn = e.warning
+    ? `<div class="miss">${e.warning} — photos are named by barcode instead.</div>` : "";
+  $("#listing-info").innerHTML = warn +
     `Listing text file: <code>${e.listing_txt || "?"}</code><br>` +
     `Batch folder: <code>${e.folder || "?"}</code>`;
   const rows = e.rows || [];

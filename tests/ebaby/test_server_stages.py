@@ -91,6 +91,24 @@ def test_ebay_run_writes_listing_txt(mock_token, mock_fetch, mock_write, client,
     assert body["listing_txt"].endswith("Ebaby Listings.txt")
 
 
+@patch("ebaby.server.ebay.get_token",
+       side_effect=RuntimeError("eBay credentials missing"))
+def test_ebay_run_without_creds_still_advances_with_barcode_names(mock_token, client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"a": "400638133393"}
+    batch.write_state(d, state)
+    (d / "2_color").mkdir(parents=True, exist_ok=True)
+    (d / "2_color/a_front.png").write_bytes(b"x")
+    resp = client.post("/api/batches/run1/ebay/run")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "eBay lookup skipped" in body["warning"]
+    assert batch.read_state(d)["stage"] == "crop"
+    # fell back to barcode-digit naming, file still moved to 4_renamed
+    assert (d / "4_renamed/400638133393_front.png").exists()
+
+
 def test_serve_file_returns_batch_image_and_404s_outside(client, tmp_path):
     d = _make_batch_at_stage(client, tmp_path, "crop")
     (d / "4_renamed").mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,10 @@
 /* EBABY — GTA-style skin: Vice City neon on GTA V charcoal. */
+@font-face {
+  font-family: "Pricedown";
+  src: url("/fonts/pricedown-bl.otf") format("opentype");
+  font-display: swap;
+}
+
 :root {
   --bg: #0a0a0d;
   --panel: #141419;
