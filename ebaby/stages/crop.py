@@ -1,0 +1,114 @@
+"""Auto-crop a DVD case photo — adapted from redboxflip/scan.py (scan_case)
+and redboxflip/cutout.py (rembg_matte).
+
+detect_crop_box() returns the detected quad explicitly (not just a final
+warped image) so the caller can hand it to the browser's corner-drag editor
+as the SEEDED box — the old app's editor threw this away and reset to a
+dumb 10%-margin rectangle every time; that is the exact bug this module's
+API shape is designed to prevent a repeat of.
+"""
+import cv2
+import numpy as np
+
+_PROC_EDGE = 1000
+_REMBG_SESSIONS = {}
+
+
+def rembg_matte(bgr, model="isnet-general-use"):
+    """Alpha matte from rembg, or None if rembg/model unavailable."""
+    try:
+        from rembg import remove, new_session
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        if model not in _REMBG_SESSIONS:
+            _REMBG_SESSIONS[model] = new_session(model)
+        pil = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        out = remove(pil, session=_REMBG_SESSIONS[model])
+        return np.asarray(out.convert("RGBA").getchannel("A"))
+    except Exception:
+        return None
+
+
+def _order_pts(pts):
+    pts = np.array(pts, np.float32)
+    s = pts.sum(1)
+    d = np.diff(pts, 1).ravel()
+    return np.array([pts[np.argmin(s)], pts[np.argmin(d)],
+                     pts[np.argmax(s)], pts[np.argmax(d)]], np.float32)
+
+
+def warp_to_quad(img, box):
+    box = _order_pts(box)
+    tl, tr, br, bl = box
+    W = int(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl)))
+    H = int(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl)))
+    if W < 10 or H < 10:
+        return None
+    dst = np.array([[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]], np.float32)
+    M = cv2.getPerspectiveTransform(box, dst)
+    return cv2.warpPerspective(img, M, (W, H))
+
+
+def detect_crop_box(bgr, rembg_model="isnet-general-use"):
+    """(quad, coverage) or None. quad is 4x2 float32 corners in FULL-resolution
+    image coordinates, in the exact order warp_to_quad expects — this is the
+    box the browser editor should seed its draggable corners from."""
+    h, w = bgr.shape[:2]
+    scale = _PROC_EDGE / float(max(h, w))
+    small = cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))))
+
+    alpha_small = rembg_matte(small, rembg_model)
+    if alpha_small is None or alpha_small.shape != small.shape[:2]:
+        return None
+
+    _, m = cv2.threshold(alpha_small, 180, 255, cv2.THRESH_BINARY)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)), iterations=2)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15)), iterations=3)
+    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    c = max(cnts, key=cv2.contourArea)
+    coverage = float(cv2.contourArea(c)) / float(small.shape[0] * small.shape[1])
+    if not (0.06 <= coverage <= 0.99):
+        return None
+
+    box = cv2.boxPoints(cv2.minAreaRect(c)) / scale
+    return box.astype(np.float32), coverage
+
+
+def compose_on_white(rgba, size=1600):
+    """Fit an RGBA crop onto a white square of side `size`, alpha-composited
+    (transparent/near-transparent pixels become white, matching the DVD
+    listing photo convention)."""
+    h, w = rgba.shape[:2]
+    scale = min(size / h, size / w)
+    resized = cv2.resize(rgba, (max(1, int(w * scale)), max(1, int(h * scale))),
+                         interpolation=cv2.INTER_AREA)
+    rh, rw = resized.shape[:2]
+    canvas = np.full((size, size, 3), 255, dtype=np.uint8)
+    y0, x0 = (size - rh) // 2, (size - rw) // 2
+
+    rgb = resized[..., :3].astype(np.float32)
+    alpha = (resized[..., 3:4].astype(np.float32)) / 255.0
+    bg = canvas[y0:y0 + rh, x0:x0 + rw].astype(np.float32)
+    blended = rgb * alpha + bg * (1 - alpha)
+    canvas[y0:y0 + rh, x0:x0 + rw] = blended.astype(np.uint8)
+    return canvas
+
+
+def crop_and_compose(bgr, quad, size=1600, rembg_model="isnet-general-use"):
+    """Given a (possibly user-adjusted) quad, warp+matte+compose to the final
+    listing photo. Used both for the initial auto-crop and for re-cropping
+    after a manual corner edit in the browser."""
+    warped_bgr = warp_to_quad(bgr, quad)
+    if warped_bgr is None:
+        raise ValueError("quad produced a degenerate warp (too small)")
+    alpha = rembg_matte(warped_bgr, rembg_model)
+    if alpha is None:
+        alpha = np.full(warped_bgr.shape[:2], 255, dtype=np.uint8)
+    rgba = np.dstack([cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2RGB), alpha])
+    return compose_on_white(rgba, size=size)
