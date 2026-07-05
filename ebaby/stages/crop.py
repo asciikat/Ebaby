@@ -77,15 +77,22 @@ def detect_crop_box(bgr, rembg_model="isnet-general-use"):
         return None
 
     box = cv2.boxPoints(cv2.minAreaRect(c)) / scale
+    # expand 1.5% outward from the centroid: the rembg matte tends to sit a
+    # hair INSIDE the case, which used to shave the edges off the crop
+    center = box.mean(axis=0)
+    box = center + (box - center) * 1.015
+    h_full, w_full = bgr.shape[:2]
+    box[:, 0] = np.clip(box[:, 0], 0, w_full - 1)
+    box[:, 1] = np.clip(box[:, 1], 0, h_full - 1)
     return box.astype(np.float32), coverage
 
 
-def compose_on_white(rgba, size=1600):
-    """Fit an RGBA crop onto a white square of side `size`, alpha-composited
-    (transparent/near-transparent pixels become white, matching the DVD
-    listing photo convention)."""
+def compose_on_white(rgba, size=1600, margin=0.10):
+    """Fit an RGBA crop onto a white square of side `size`, alpha-composited,
+    with a white border of `margin` (fraction of the square) around the case
+    so the listing photo breathes instead of touching the frame."""
     h, w = rgba.shape[:2]
-    scale = min(size / h, size / w)
+    scale = min(size / h, size / w) * (1.0 - max(0.0, min(margin, 0.45)))
     resized = cv2.resize(rgba, (max(1, int(w * scale)), max(1, int(h * scale))),
                          interpolation=cv2.INTER_AREA)
     rh, rw = resized.shape[:2]
@@ -100,6 +107,19 @@ def compose_on_white(rgba, size=1600):
     return canvas
 
 
+def _feathered_alpha(h, w, frac=0.008):
+    """Fully opaque except the outer ~0.8% of each edge, which fades smoothly
+    to transparent — so the case melts into the white background instead of
+    ending in a hard scissor line."""
+    f = max(2, int(round(frac * max(h, w))))
+    alpha = np.full((h, w), 255, dtype=np.uint8)
+    alpha[:f, :] = 0
+    alpha[-f:, :] = 0
+    alpha[:, :f] = 0
+    alpha[:, -f:] = 0
+    return cv2.GaussianBlur(alpha, (0, 0), max(1.0, f / 2.0))
+
+
 def crop_and_compose(bgr, quad, size=1600):
     """Given a (possibly user-adjusted) quad, warp the case out and centre it
     on the white square. NO matting here — rembg is only for FINDING the case
@@ -109,5 +129,6 @@ def crop_and_compose(bgr, quad, size=1600):
     warped_bgr = warp_to_quad(bgr, quad)
     if warped_bgr is None:
         raise ValueError("quad produced a degenerate warp (too small)")
-    alpha = np.full(warped_bgr.shape[:2], 255, dtype=np.uint8)
-    return compose_on_white(np.dstack([warped_bgr, alpha]), size=size)
+    h, w = warped_bgr.shape[:2]
+    return compose_on_white(np.dstack([warped_bgr, _feathered_alpha(h, w)]),
+                            size=size)

@@ -98,6 +98,45 @@ def enhance_image(bgr_img: np.ndarray, contrast: float = 1.0,
     return img_color
 
 
+def lift_whites(bgr_img: np.ndarray, target: float = 247.0,
+                max_gain: float = 1.35) -> np.ndarray:
+    """Brighten the whole frame so the surrounding PAPER reads bright white,
+    lifting the cover with it. Gain is capped and anchored to the paper's
+    median brightness, so a correctly-exposed shot barely moves and nothing
+    gets pushed into overexposure."""
+    mask = get_surrounding_white_mask(bgr_img)
+    if mask.sum() == 0:
+        return bgr_img
+    v = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2HSV)[:, :, 2]
+    paper = float(np.median(v[mask > 0]))
+    if paper <= 0 or paper >= target:
+        return bgr_img
+    gain = min(target / paper, max_gain)
+    return np.clip(bgr_img.astype(np.float32) * gain, 0, 255).astype(np.uint8)
+
+
+# Listing-photo look: brighter paper, punchier contrast/colour, crisp edges.
+POP_CONTRAST = 1.5
+POP_SATURATION = 1.18
+POP_SHARPEN = 1.45
+
+
+def color_correct_plain_file(src_path, out_path, contrast: float = POP_CONTRAST,
+                              saturation: float = POP_SATURATION,
+                              sharpen: float = POP_SHARPEN) -> bool:
+    """Same white-balance + white-lift + pop treatment for JPG/PNG uploads,
+    so phone-JPEG batches get the identical look RAW batches do."""
+    bgr = cv2.imread(str(src_path))
+    if bgr is None:
+        return False
+    corrected = apply_white_balance(bgr, get_white_balance_gains(bgr))
+    lifted = lift_whites(corrected)
+    final = enhance_image(lifted, contrast, saturation, sharpen)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out_path), final)
+    return True
+
+
 def process_raw(raw_path, denoise: str = "light") -> np.ndarray:
     fbdd, noise_thr, median_passes = _denoise_levels().get(denoise, _denoise_levels()["light"])
     kwargs = dict(use_camera_wb=True, fbdd_noise_reduction=fbdd, median_filter_passes=median_passes)
@@ -109,12 +148,14 @@ def process_raw(raw_path, denoise: str = "light") -> np.ndarray:
 
 
 def color_correct_file(raw_path, out_path, denoise: str = "light",
-                        contrast: float = 1.0, saturation: float = 1.1,
-                        sharpen: float = 1.2, gains=None) -> None:
-    """Decode one RAW file, white-balance + enhance, save as PNG at out_path."""
+                        contrast: float = POP_CONTRAST,
+                        saturation: float = POP_SATURATION,
+                        sharpen: float = POP_SHARPEN, gains=None) -> None:
+    """Decode one RAW file, white-balance + white-lift + enhance, save as PNG."""
     bgr = process_raw(raw_path, denoise=denoise)
     current_gains = gains if gains is not None else get_white_balance_gains(bgr)
     corrected = apply_white_balance(bgr, current_gains)
-    final = enhance_image(corrected, contrast, saturation, sharpen)
+    lifted = lift_whites(corrected)
+    final = enhance_image(lifted, contrast, saturation, sharpen)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), final)

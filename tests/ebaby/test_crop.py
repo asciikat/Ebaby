@@ -48,3 +48,27 @@ def test_compose_on_white_fills_transparent_pixels_white():
     rgba = np.zeros((10, 10, 4), dtype=np.uint8)  # fully transparent
     out = crop.compose_on_white(rgba, size=20)
     assert tuple(out[10, 10]) == (255, 255, 255)
+
+
+def test_compose_on_white_leaves_a_white_border_margin():
+    rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+    rgba[..., 3] = 255  # opaque black square
+    out = crop.compose_on_white(rgba, size=200, margin=0.10)
+    assert tuple(out[3, 3]) == (255, 255, 255)      # border stays white
+    assert tuple(out[100, 100]) == (0, 0, 0)        # centre is the image
+
+
+def test_crop_edges_feather_into_the_white_background():
+    frame = _case_on_white()
+    quad, _ = crop.detect_crop_box(frame)
+    out = crop.crop_and_compose(frame, quad, size=400)
+    h, w = out.shape[:2]
+    centre = out[h // 2, w // 2].astype(int).mean()
+    # walk in from the left edge to the first non-white column: it must be
+    # LIGHTER than the case centre (blending toward white), not a hard edge
+    x = 0
+    while x < w and out[h // 2, x].astype(int).mean() > 250:
+        x += 1
+    assert x < w, "case never appeared"
+    edge = out[h // 2, x].astype(int).mean()
+    assert edge > centre + 10

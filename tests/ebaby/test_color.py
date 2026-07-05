@@ -55,3 +55,27 @@ def test_color_correct_file_writes_a_png(sample_front, tmp_path):
     assert out_path.exists()
     img = cv2.imread(str(out_path))
     assert img is not None and img.shape[2] == 3
+
+
+def test_lift_whites_brightens_dim_paper_without_blowout():
+    img = np.full((80, 80, 3), 60, dtype=np.uint8)   # dark case...
+    img[:10, :] = 190                                 # ...dim paper at border
+    img[-10:, :] = 190
+    img[:, :10] = 190
+    img[:, -10:] = 190
+    out = color.lift_whites(img)
+    assert out[2, 40].mean() > 190          # paper got lifted brighter
+    assert out[2, 40].mean() <= 255
+    assert out[40, 40].mean() > 60          # cover lifted with it
+    assert out[40, 40].mean() < 120         # but nowhere near blown out
+
+
+def test_color_correct_plain_file_writes_enhanced_png(tmp_path):
+    src = tmp_path / "a_front.jpg"
+    img = np.full((60, 60, 3), 120, dtype=np.uint8)
+    img[:8, :] = 200
+    cv2.imwrite(str(src), img)
+    out = tmp_path / "a_front.png"
+    assert color.color_correct_plain_file(src, out) is True
+    assert out.exists()
+    assert color.color_correct_plain_file(tmp_path / "missing.jpg", out) is False

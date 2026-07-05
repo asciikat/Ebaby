@@ -163,9 +163,7 @@ def color_run(name: str):
                 color.color_correct_file(src, out_path)
                 count += 1
             elif ext in PLAIN_EXTS:
-                img = cv2.imread(str(src))
-                if img is not None:
-                    cv2.imwrite(str(out_path), img)
+                if color.color_correct_plain_file(src, out_path):
                     count += 1
     batch.advance_stage(d, "color", "barcode")
     return {"colored": count}
