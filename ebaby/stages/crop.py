@@ -51,19 +51,11 @@ def warp_to_quad(img, box):
     return cv2.warpPerspective(img, M, (W, H))
 
 
-def detect_crop_box(bgr, rembg_model="isnet-general-use"):
-    """(quad, coverage) or None. quad is 4x2 float32 corners in FULL-resolution
-    image coordinates, in the exact order warp_to_quad expects — this is the
-    box the browser editor should seed its draggable corners from."""
-    h, w = bgr.shape[:2]
-    scale = _PROC_EDGE / float(max(h, w))
-    small = cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))))
-
-    alpha_small = rembg_matte(small, rembg_model)
-    if alpha_small is None or alpha_small.shape != small.shape[:2]:
-        return None
-
-    _, m = cv2.threshold(alpha_small, 180, 255, cv2.THRESH_BINARY)
+def _box_from_mask(m, scale, full_shape):
+    """Clean a binary mask and fit one rectangle to the case, or None.
+    Glare/reflections often split the matte into pieces — every contour at
+    least 30% the size of the biggest is merged before fitting, so a split
+    case still yields ONE box instead of half a box."""
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN,
                          cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)), iterations=2)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
@@ -71,20 +63,63 @@ def detect_crop_box(bgr, rembg_model="isnet-general-use"):
     cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         return None
-    c = max(cnts, key=cv2.contourArea)
-    coverage = float(cv2.contourArea(c)) / float(small.shape[0] * small.shape[1])
+    biggest = max(cv2.contourArea(c) for c in cnts)
+    keep = [c for c in cnts if cv2.contourArea(c) >= 0.3 * biggest]
+    merged = np.vstack(keep)
+    coverage = float(sum(cv2.contourArea(c) for c in keep)) / float(m.shape[0] * m.shape[1])
     if not (0.06 <= coverage <= 0.99):
         return None
 
-    box = cv2.boxPoints(cv2.minAreaRect(c)) / scale
+    rect = cv2.minAreaRect(merged)
+    rect_area = rect[1][0] * rect[1][1]
+    # a DVD case FILLS its fitted rectangle (~0.99); diffuse rembg ghosts on
+    # blank/odd frames don't (~0.75) — reject anything that isn't a solid slab
+    if rect_area <= 0 or (coverage * m.shape[0] * m.shape[1]) / rect_area < 0.85:
+        return None
+
+    box = cv2.boxPoints(rect) / scale
     # expand 1.5% outward from the centroid: the rembg matte tends to sit a
     # hair INSIDE the case, which used to shave the edges off the crop
     center = box.mean(axis=0)
     box = center + (box - center) * 1.015
-    h_full, w_full = bgr.shape[:2]
+    h_full, w_full = full_shape[:2]
     box[:, 0] = np.clip(box[:, 0], 0, w_full - 1)
     box[:, 1] = np.clip(box[:, 1], 0, h_full - 1)
     return box.astype(np.float32), coverage
+
+
+def detect_crop_box(bgr, rembg_model="isnet-general-use"):
+    """(quad, coverage) or None. quad is 4x2 float32 corners in FULL-resolution
+    image coordinates, in the exact order warp_to_quad expects — this is the
+    box the browser editor should seed its draggable corners from.
+
+    Three lines of attack, strongest first:
+    1. rembg matte at a confident threshold (180)
+    2. the same matte at looser thresholds (120, 60) — soft/uncertain mattes
+       on dark or glossy cases still outline the right region
+    3. paper segmentation — the case is whatever ISN'T bright white paper;
+       works even when the AI matte fails completely"""
+    h, w = bgr.shape[:2]
+    scale = _PROC_EDGE / float(max(h, w))
+    small = cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))))
+
+    alpha_small = rembg_matte(small, rembg_model)
+    if alpha_small is not None and alpha_small.shape == small.shape[:2]:
+        for thr in (180, 120, 60):
+            _, m = cv2.threshold(alpha_small, thr, 255, cv2.THRESH_BINARY)
+            found = _box_from_mask(m, scale, bgr.shape)
+            if found is not None:
+                return found
+
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+    s, v = hsv[:, :, 1], hsv[:, :, 2]
+    for v_thr, s_thr in ((160, 60), (140, 80), (120, 90)):
+        paper = (v > v_thr) & (s < s_thr)
+        case = np.where(paper, 0, 255).astype(np.uint8)
+        found = _box_from_mask(case, scale, bgr.shape)
+        if found is not None:
+            return found
+    return None
 
 
 def compose_on_white(rgba, size=1600, margin=0.10):
@@ -107,10 +142,10 @@ def compose_on_white(rgba, size=1600, margin=0.10):
     return canvas
 
 
-def _feathered_alpha(h, w, frac=0.008):
-    """Fully opaque except the outer ~0.8% of each edge, which fades smoothly
-    to transparent — so the case melts into the white background instead of
-    ending in a hard scissor line."""
+def _feathered_alpha(h, w, frac=0.004):
+    """Fully opaque except the outer ~0.4% of each edge, which fades smoothly
+    to transparent — just enough that the case doesn't end in a hard scissor
+    line, without visibly softening the cover."""
     f = max(2, int(round(frac * max(h, w))))
     alpha = np.full((h, w), 255, dtype=np.uint8)
     alpha[:f, :] = 0
