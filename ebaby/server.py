@@ -201,6 +201,13 @@ def ebay_run(name: str):
     ebay.write_csv(rows, d / "Ebay_Details.csv")
     _write_listing_txt(rows, d / "Ebaby Listings.txt")
 
+    # tag each row new/used AFTER the CSV is written (extra keys would
+    # break DictWriter): number-keyed sets are factory-fresh, letters used
+    stock_by_barcode = {v: ("new" if k.isdigit() else "used")
+                        for k, v in barcodes.items()}
+    for row in rows:
+        row["Stock"] = stock_by_barcode.get(row.get("Barcode"), "used")
+
     barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
     key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
     state["titles"] = key_to_title

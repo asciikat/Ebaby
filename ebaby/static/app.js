@@ -180,12 +180,42 @@ async function finishJob() {
   show("screen-crop");
 }
 
+function priceTag(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
+}
+
+function renderFenceCards(rows) {
+  const wrap = $("#fence-cards");
+  wrap.innerHTML = "";
+  for (const row of rows) {
+    const isNew = row.Stock === "new";
+    const bigLabel = isNew ? "NEW" : "USED";
+    const bigPrice = priceTag(isNew ? row["Lowest Price New (AUD)"]
+                                    : row["Lowest Price Used (AUD)"]);
+    const smallLabel = isNew ? "USED" : "NEW";
+    const smallPrice = priceTag(isNew ? row["Lowest Price Used (AUD)"]
+                                      : row["Lowest Price New (AUD)"]);
+    const card = document.createElement("div");
+    card.className = "score-card";
+    card.innerHTML =
+      `<div class="score-title">${row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC"}</div>` +
+      `<div class="score-prices">` +
+        `<div class="score-big"><span class="label">${bigLabel}</span>${bigPrice}</div>` +
+        `<div class="score-small"><span class="label">${smallLabel}</span>${smallPrice}</div>` +
+      `</div>`;
+    wrap.appendChild(card);
+  }
+  if (!rows.length) wrap.innerHTML = `<div class="hint">The fence had nothing to say.</div>`;
+}
+
 function renderEbayPanel(e) {
   const warn = e.warning
     ? `<div class="miss">${e.warning} — photos are named by barcode instead.</div>` : "";
   $("#listing-info").innerHTML = warn +
     `Listing text file: <code>${e.listing_txt || "?"}</code><br>` +
     `Batch folder: <code>${e.folder || "?"}</code>`;
+  renderFenceCards(e.rows || []);
   const rows = e.rows || [];
   const table = $("#ebay-table");
   if (!rows.length) { table.innerHTML = "<tr><td>No eBay matches found.</td></tr>"; return; }

@@ -163,6 +163,50 @@ td input {
 }
 .panel code { color: var(--cyan); font-size: 1.05rem; }
 
+/* fence valuation cards */
+.score-card {
+  background: var(--panel);
+  border: 2px solid #26262e;
+  border-left: 6px solid var(--green);
+  border-radius: 10px;
+  padding: 1rem 1.3rem;
+  margin: .8rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.score-title {
+  font-family: var(--headline);
+  font-size: 2.2rem;
+  line-height: 1.05;
+  color: var(--ink);
+  text-shadow: 3px 3px 0 #000;
+  flex: 1 1 300px;
+}
+.score-prices { text-align: right; }
+.score-big {
+  font-family: var(--headline);
+  font-size: 3.2rem;
+  color: var(--green);
+  text-shadow: 3px 3px 0 #000, 0 0 25px rgba(158, 199, 36, .4);
+  white-space: nowrap;
+}
+.score-small {
+  font-family: var(--headline);
+  font-size: 1.3rem;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.score-prices .label {
+  font-size: .55em;
+  letter-spacing: .15em;
+  color: var(--amber);
+  margin-right: .5em;
+  vertical-align: middle;
+}
+
 details summary {
   font-family: var(--headline);
   font-size: 1.2rem;
