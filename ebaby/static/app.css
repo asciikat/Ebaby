@@ -1,7 +1,14 @@
 /* EBABY — GTA-style skin: Vice City neon on GTA V charcoal. */
 @font-face {
+  /* Pricedown kept ONLY for the logo — it's the GTA logo font but unreadable at size */
   font-family: "Pricedown";
   src: url("/fonts/pricedown-bl.otf") format("opentype");
+  font-display: swap;
+}
+@font-face {
+  /* Bebas Neue: the GTA V poster look, actually readable */
+  font-family: "Bebas Neue";
+  src: url("/fonts/bebas-neue.ttf") format("truetype");
   font-display: swap;
 }
 
@@ -15,19 +22,21 @@
   --cyan: #29d9f6;
   --amber: #f6a821;
   --red: #e03b3b;
-  --headline: "Pricedown", Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  --logo: "Pricedown", "Bebas Neue", Impact, sans-serif;
+  --headline: "Bebas Neue", Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 }
 
 * { box-sizing: border-box; }
 
 body {
   font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 18px;
   background:
     radial-gradient(1200px 500px at 80% -10%, rgba(255, 46, 196, .18), transparent 60%),
     radial-gradient(1000px 500px at 10% 110%, rgba(41, 217, 246, .12), transparent 60%),
     var(--bg);
   color: var(--ink);
-  max-width: 960px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 1.5rem;
   min-height: 100vh;
@@ -35,29 +44,31 @@ body {
 
 header { text-align: center; margin-bottom: 2rem; }
 .logo {
-  font-family: var(--headline);
-  font-size: 5rem;
+  font-family: var(--logo);
+  font-size: 6rem;
   margin: 0;
   letter-spacing: .05em;
   color: var(--pink);
-  text-shadow: 4px 4px 0 #000, 0 0 30px rgba(255, 46, 196, .55);
+  text-shadow: 5px 5px 0 #000, 0 0 40px rgba(255, 46, 196, .55);
   transform: skewX(-6deg);
 }
 .tagline {
   font-family: var(--headline);
+  font-size: 1.5rem;
   color: var(--green);
-  letter-spacing: .35em;
+  letter-spacing: .45em;
   text-shadow: 2px 2px 0 #000;
 }
 
 .mission {
   font-family: var(--headline);
-  font-size: 2.2rem;
-  letter-spacing: .06em;
+  font-size: 3.2rem;
+  letter-spacing: .05em;
   color: var(--amber);
-  text-shadow: 3px 3px 0 #000;
-  border-bottom: 3px solid var(--amber);
-  padding-bottom: .3rem;
+  text-shadow: 4px 4px 0 #000;
+  border-bottom: 4px solid var(--amber);
+  padding-bottom: .2rem;
+  text-transform: uppercase;
 }
 .mission.passed { color: var(--green); border-color: var(--green); }
 .mission.wasted { color: var(--red); border-color: var(--red); }
@@ -77,7 +88,7 @@ header { text-align: center; margin-bottom: 2rem; }
 .dropzone.dragover { border-color: var(--cyan); box-shadow: 0 0 25px rgba(41, 217, 246, .35); }
 .dropzone h3 {
   font-family: var(--headline);
-  font-size: 1.6rem;
+  font-size: 2.4rem;
   margin: 0 0 .2rem;
   color: var(--cyan);
   text-shadow: 2px 2px 0 #000;
@@ -86,7 +97,7 @@ header { text-align: center; margin-bottom: 2rem; }
 
 .pick {
   font-family: var(--headline);
-  font-size: 1.1rem;
+  font-size: 1.5rem;
   letter-spacing: .08em;
   background: transparent;
   color: var(--ink);
@@ -104,7 +115,7 @@ header { text-align: center; margin-bottom: 2rem; }
   display: block;
   width: 100%;
   font-family: var(--headline);
-  font-size: 2rem;
+  font-size: 2.8rem;
   letter-spacing: .1em;
   padding: .7rem;
   border: none;
@@ -122,7 +133,7 @@ header { text-align: center; margin-bottom: 2rem; }
 
 .ghost-btn {
   font-family: var(--headline);
-  font-size: 1.2rem;
+  font-size: 1.6rem;
   background: transparent;
   color: var(--dim);
   border: 2px solid var(--dim);
@@ -134,7 +145,7 @@ header { text-align: center; margin-bottom: 2rem; }
 .error { color: var(--red); font-weight: 700; margin-top: .8rem; min-height: 1.2em; }
 
 /* mission log */
-#mission-log { list-style: none; padding: 0; font-size: 1.05rem; }
+#mission-log { list-style: none; padding: 0; font-size: 1.35rem; }
 #mission-log li { padding: .35rem 0; border-bottom: 1px solid #1e1e26; }
 #mission-log li.done::before { content: "✔ "; color: var(--green); }
 #mission-log li.doing::before { content: "► "; color: var(--amber); }
@@ -179,7 +190,7 @@ td input {
 }
 .score-title {
   font-family: var(--headline);
-  font-size: 2.2rem;
+  font-size: 3rem;
   line-height: 1.05;
   color: var(--ink);
   text-shadow: 3px 3px 0 #000;
@@ -188,14 +199,14 @@ td input {
 .score-prices { text-align: right; }
 .score-big {
   font-family: var(--headline);
-  font-size: 3.2rem;
+  font-size: 4.2rem;
   color: var(--green);
   text-shadow: 3px 3px 0 #000, 0 0 25px rgba(158, 199, 36, .4);
   white-space: nowrap;
 }
 .score-small {
   font-family: var(--headline);
-  font-size: 1.3rem;
+  font-size: 1.7rem;
   color: var(--dim);
   white-space: nowrap;
 }
@@ -209,7 +220,7 @@ td input {
 
 details summary {
   font-family: var(--headline);
-  font-size: 1.2rem;
+  font-size: 1.6rem;
   color: var(--cyan);
   cursor: pointer;
   letter-spacing: .06em;
@@ -247,7 +258,7 @@ canvas {
 #stage-rail span {
   font-family: var(--headline);
   letter-spacing: .08em;
-  font-size: .95rem;
+  font-size: 1.25rem;
   color: var(--dim);
   background: var(--panel);
   border: 1px solid #26262e;
