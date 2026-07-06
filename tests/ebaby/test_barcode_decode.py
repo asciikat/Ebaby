@@ -34,3 +34,15 @@ def test_normalize_barcode_strips_leading_zero_for_upca_via_ean13():
 
 def test_normalize_barcode_leaves_other_symbologies_alone():
     assert bd._normalize_barcode("012345678905", "UPCA") == "012345678905"
+
+
+def test_candidates_never_upscale_past_the_view_cap():
+    """A 2400px full-frame fallback x3 = 7200px through 7 contrast variants
+    is the 'minutes per missed barcode' path — big frames must skip x2/x3."""
+    import numpy as np
+    from ebaby.stages import barcode_decode
+    big = np.full((2400, 1600), 128, dtype=np.uint8)
+    assert max(max(v.shape[:2]) for v in barcode_decode._candidates(big)) <= \
+        barcode_decode._MAX_VIEW_DIM
+    small = np.full((200, 400), 128, dtype=np.uint8)  # tight crop: x3 kept
+    assert max(max(v.shape[:2]) for v in barcode_decode._candidates(small)) == 1200

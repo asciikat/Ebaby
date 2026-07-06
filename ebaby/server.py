@@ -161,11 +161,21 @@ def color_run(name: str):
         return err
     out_dir = d / "2_color"
     out_dir.mkdir(parents=True, exist_ok=True)
-    todo = []
+    # RAW+JPEG cameras save BOTH per shot with the same stem; both would
+    # write the same <stem>.png and the plain JPEG (sorting after .dng/.nef)
+    # would clobber the colour-corrected RAW conversion. One file per stem,
+    # RAW preferred.
+    by_stem = {}
     for zone_dir in (d / "1_originals/used", d / "1_originals/new"):
         for src in sorted(zone_dir.glob("*")):
-            if src.suffix.lower() in RAW_EXTS + PLAIN_EXTS:
-                todo.append(src)
+            ext = src.suffix.lower()
+            if ext not in RAW_EXTS + PLAIN_EXTS:
+                continue
+            key = (zone_dir.name, src.stem)
+            if key not in by_stem or (ext in RAW_EXTS and
+                                      by_stem[key].suffix.lower() not in RAW_EXTS):
+                by_stem[key] = src
+    todo = list(by_stem.values())
     count = 0
     _set_progress(d, state, "color", 0, len(todo))
     for i, src in enumerate(todo, 1):

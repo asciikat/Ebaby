@@ -263,3 +263,18 @@ def test_ebay_run_persists_rows_for_resume(mock_token, mock_fetch, mock_write, c
     s = batch.read_state(d)
     assert s["ebay_rows"][0]["Title"] == "The Matrix"
     assert s["listing_txt"].endswith("Ebaby Listings.txt")
+
+
+@patch("ebaby.server.color.color_correct_file")
+def test_color_run_raw_plus_jpeg_pair_prefers_raw(mock_cc, client, tmp_path):
+    """RAW+JPEG cameras save both per shot with the SAME stem. The plain JPEG
+    must not clobber the colour-corrected RAW conversion of the same shot."""
+    d = _make_batch_at_stage(client, tmp_path, "color")
+    (d / "1_originals/used/a_front.dng").write_bytes(b"raw")
+    cv2.imwrite(str(d / "1_originals/used/a_front.jpg"),
+                np.full((30, 20, 3), 90, dtype=np.uint8))
+    resp = client.post("/api/batches/run1/color/run")
+    assert resp.status_code == 200
+    assert resp.json()["colored"] == 1          # one shot, not two
+    assert mock_cc.call_count == 1              # and it was the RAW that won
+    assert mock_cc.call_args[0][0].suffix == ".dng"

@@ -33,6 +33,10 @@ def _locate_barcode_crop(gray):
     return crop if crop.size > 0 else None
 
 
+_MAX_VIEW_DIM = 3200  # upscaling a 2400px full-frame fallback x3 = 7200px
+                      # through 7 contrast variants each = minutes per miss
+
+
 def _candidates(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
     sources = [gray]
@@ -41,6 +45,8 @@ def _candidates(image):
         sources.append(crop)
     for src in sources:
         for scale in (1, 2, 3):
+            if scale > 1 and max(src.shape[:2]) * scale > _MAX_VIEW_DIM:
+                continue  # tight crops still get x2/x3; huge frames don't
             g = cv2.resize(src, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC) if scale > 1 else src
             yield g
             clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(g)
