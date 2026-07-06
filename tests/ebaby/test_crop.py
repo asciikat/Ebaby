@@ -106,3 +106,27 @@ def test_loose_tier_still_rejects_a_truly_blank_frame():
     bogus crop instead of a clean 'nothing detected' result."""
     blank = np.full((400, 300, 3), 245, dtype=np.uint8)
     assert crop.detect_crop_box(blank) is None
+
+
+def test_detect_returns_true_corners_not_a_forced_rectangle():
+    """A case shot at an angle is a trapezoid. The detector must return those
+    real corners (so warp_to_quad de-keystones it), NOT a minAreaRect that
+    forces top==bottom and leaves the perspective distortion baked in."""
+    frame = np.full((760, 1000, 3), 245, dtype=np.uint8)
+    # a deliberately keystoned quad: top edge wider than bottom
+    trapezoid = np.array([[300, 120], [720, 120], [800, 640], [220, 640]], np.int32)
+    cv2.fillConvexPoly(frame, trapezoid, (85, 85, 85))
+    quad, _ = crop.detect_crop_box(frame)
+    ordered = crop._order_pts(quad)
+    tl, tr, br, bl = ordered
+    top = np.linalg.norm(tr - tl)
+    bottom = np.linalg.norm(br - bl)
+    # the two horizontal edges must differ — a forced rectangle would make
+    # them equal (that was the bug: minAreaRect erased the perspective)
+    assert abs(top - bottom) > 0.05 * max(top, bottom)
+
+
+def test_quad_from_contour_finds_four_corners_of_a_convex_blob():
+    blob = np.array([[100, 100], [400, 110], [390, 500], [110, 490]], np.int32)
+    quad = crop._quad_from_contour(blob.reshape(-1, 1, 2))
+    assert quad is not None and quad.shape == (4, 2)

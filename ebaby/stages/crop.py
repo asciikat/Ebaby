@@ -77,8 +77,30 @@ def _box_from_mask(m, scale, full_shape):
     if rect_area <= 0 or (coverage * m.shape[0] * m.shape[1]) / rect_area < 0.85:
         return None
 
-    box = cv2.boxPoints(rect) / scale
+    # Fit the case's TRUE four corners. A case shot at a slight angle is a
+    # trapezoid, not a rectangle — feeding those real corners to the
+    # perspective warp is what actually de-keystones the cover. minAreaRect
+    # can only ever return a rectangle, so warping it is rectangle->rectangle:
+    # a crop + rotate with ZERO perspective correction (the long-standing bug).
+    quad = _quad_from_contour(merged)
+    if quad is None or cv2.contourArea(quad) < 0.85 * rect_area:
+        quad = cv2.boxPoints(rect)  # no clean 4-gon -> fall back to the rect
+    box = quad / scale
     return _expand_and_clip(box, full_shape), coverage
+
+
+def _quad_from_contour(merged):
+    """The four corners of `merged` as a convex quadrilateral (same coords as
+    the input), or None if no clean 4-gon emerges. Convex hull + polygon
+    approximation at a widening tolerance — the standard document-scanner
+    corner fit — so a keystoned case yields a trapezoid the warp can flatten."""
+    hull = cv2.convexHull(merged)
+    peri = cv2.arcLength(hull, True)
+    for eps in (0.01, 0.02, 0.03, 0.04, 0.05):
+        approx = cv2.approxPolyDP(hull, eps * peri, True)
+        if len(approx) == 4 and cv2.isContourConvex(approx):
+            return approx.reshape(4, 2).astype(np.float32)
+    return None
 
 
 def _expand_and_clip(box, full_shape):
