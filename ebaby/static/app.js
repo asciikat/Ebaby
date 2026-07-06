@@ -114,6 +114,7 @@ for (const zone of ["used", "new"]) {
 /* ---------- 2. the automated job ---------- */
 
 function busted(err) {
+  show("screen-progress"); // the error must land on a VISIBLE screen
   logStep("BUSTED").fail(err.message);
   const retry = document.createElement("button");
   retry.className = "big-btn";

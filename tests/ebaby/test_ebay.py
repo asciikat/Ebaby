@@ -227,3 +227,63 @@ def test_title_search_appends_dvd_keyword(mock_get):
     mock_get.side_effect = side_effect
     ebay.fetch_listing_row("5021456189472", token="tok")
     assert "Blade Runner DVD" in seen  # DVD keyword keeps Blu-rays/CDs out
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_title_search_failure_keeps_barcode_prices(mock_get):
+    """A transient outage during the TITLE pass must not throw away the
+    barcode-pass prices (or, via fetch_all, every other disc's row)."""
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "item_summary/search" in url:
+            if "Some Movie" in params["q"]:
+                raise requests.exceptions.ConnectionError("mid-run outage")
+            if "1000|1500|1750" in params["filter"]:
+                return _resp({"itemSummaries": []})
+            return _resp({"itemSummaries": [
+                {"itemId": "B1", "title": "Some Movie",
+                 "price": {"value": "12.00"},
+                 "shippingOptions": [{"shippingCost": {"value": "3.00"}}]},
+            ]})
+        if "item/B1" in url:
+            return _resp({"title": "Some Movie", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("5021456189472", token="tok")
+    assert row["Lowest Price Used (AUD)"] == 15.00  # barcode pass survives
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_title_search_absurdly_low_match_is_rejected(mock_get):
+    """A title match far below the barcode-confirmed price (empty case /
+    single disc vs boxset / generic lot) must NOT drag the price down."""
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "item_summary/search" in url:
+            by_title = "Boxset" in params["q"]
+            if "1000|1500|1750" in params["filter"]:
+                return _resp({"itemSummaries": []})
+            if by_title:  # a $1.50-delivered wrong match
+                return _resp({"itemSummaries": [
+                    {"itemId": "T1", "title": "Boxset DVD",
+                     "price": {"value": "1.00"},
+                     "shippingOptions": [{"shippingCost": {"value": "0.50"}}]},
+                ]})
+            return _resp({"itemSummaries": [  # barcode-confirmed $30 delivered
+                {"itemId": "B1", "title": "Boxset",
+                 "price": {"value": "27.00"},
+                 "shippingOptions": [{"shippingCost": {"value": "3.00"}}]},
+            ]})
+        if "item/B1" in url:
+            return _resp({"title": "Boxset", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("5021456189472", token="tok")
+    assert row["Lowest Price Used (AUD)"] == 30.00  # $1.50 match rejected
+
+
+def test_guarded_min_accepts_title_price_when_no_barcode_price():
+    # nothing to sanity-check against -> take the title figure
+    assert ebay._guarded_min(None, 4.0) == 4.0
+    # plausible title price wins
+    assert ebay._guarded_min(20.0, 15.0) == 15.0
+    # implausible (below 30% of barcode price) rejected
+    assert ebay._guarded_min(20.0, 2.0) == 20.0

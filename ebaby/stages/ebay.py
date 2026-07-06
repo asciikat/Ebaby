@@ -141,13 +141,21 @@ def _fetch_item_specifics(item_id, headers):
     return data.get("title", ""), aspects
 
 
-def _min_price(a, b):
-    """Lowest of two optional delivered prices."""
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return min(a, b)
+def _guarded_min(barcode_price, title_price, floor_ratio=0.3):
+    """Lowest of the barcode- and title-search delivered prices, EXCEPT a
+    title match is rejected when it's below floor_ratio of the
+    barcode-confirmed price. A title-only listing that cheap is almost always
+    the wrong item — an empty case, a single disc where ours is a boxset, or a
+    generic 'DVD lot' — and letting it through is exactly how prices come out
+    implausibly low. With no barcode price to check against, the title price
+    is taken as-is (better a rough figure than none)."""
+    if title_price is None:
+        return barcode_price
+    if barcode_price is None:
+        return title_price
+    if title_price < barcode_price * floor_ratio:
+        return barcode_price
+    return min(barcode_price, title_price)
 
 
 def fetch_listing_row(barcode, token, marketplace=None):
@@ -176,12 +184,17 @@ def fetch_listing_row(barcode, token, marketplace=None):
         title = fallback_title
 
     if title:
-        # 'DVD' keeps the title search from matching Blu-rays/CDs/posters
+        # 'DVD' keeps the title search from matching Blu-rays/CDs/posters.
+        # Best-effort: a transient failure here must not throw away the
+        # barcode-pass prices (or, via fetch_all, the whole batch's rows).
         q = title if "dvd" in title.lower() else f"{title} DVD"
-        title_new, _, _ = _search_condition(q, NEW_CONDITIONS, headers)
-        title_used, _, _ = _search_condition(q, USED_CONDITIONS, headers)
-        lowest_new = _min_price(lowest_new, title_new)
-        lowest_used = _min_price(lowest_used, title_used)
+        try:
+            title_new, _, _ = _search_condition(q, NEW_CONDITIONS, headers)
+            title_used, _, _ = _search_condition(q, USED_CONDITIONS, headers)
+        except EbayUnavailable:
+            title_new = title_used = None
+        lowest_new = _guarded_min(lowest_new, title_new)
+        lowest_used = _guarded_min(lowest_used, title_used)
 
     slug = slugify_title(title, fallback=barcode)
     return {

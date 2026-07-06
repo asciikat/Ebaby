@@ -64,3 +64,19 @@ def test_list_batches_returns_created_names_sorted():
 
 def test_list_batches_empty_root_returns_empty_list():
     assert batch.list_batches() == []
+
+
+def test_write_state_is_atomic_no_torn_read(tmp_path):
+    """A reader must never see a half-written state.json. After write_state
+    the file parses cleanly and no .tmp is left behind."""
+    import json
+    from ebaby import batch
+    d = tmp_path / "b"
+    d.mkdir()
+    batch.write_state(d, {"stage": "color", "progress": {"done": 3, "total": 7}})
+    loaded = json.loads((d / "state.json").read_text(encoding="utf-8"))
+    assert loaded["progress"]["done"] == 3
+    assert not (d / "state.json.tmp").exists()
+    # overwrite works too (os.replace over an existing file)
+    batch.write_state(d, {"stage": "done"})
+    assert batch.read_state(d)["stage"] == "done"

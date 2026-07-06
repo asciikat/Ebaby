@@ -8,6 +8,7 @@ stage clears and regenerates only that stage's own output folder (handled by
 the stage modules themselves, not here).
 """
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,7 +54,13 @@ def read_state(d: Path) -> dict:
 
 
 def write_state(d: Path, state: dict) -> None:
-    (d / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+    # Atomic: the progress poll reads state.json concurrently while a slow
+    # stage rewrites it. Write to a temp file then replace, so a reader never
+    # catches a half-written file (torn JSON -> 500 on /state).
+    p = d / "state.json"
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def advance_stage(d: Path, from_stage: str, to_stage: str) -> dict:
