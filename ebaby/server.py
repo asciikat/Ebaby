@@ -279,17 +279,20 @@ def _write_listing_txt(rows, out_path):
     for i, row in enumerate(rows, 1):
         lines.append(f"--- SCORE #{i} " + "-" * 36)
         lines.append(f"Barcode: {row.get('Barcode', '?')}")
+        stock = row.get("Stock", "")
         for k, v in row.items():
-            if k != "Barcode" and not k.startswith("Your Price") and v != "" and v is not None:
+            if k in ("Barcode", "Stock") or k.startswith("Your Price"):
+                continue
+            if v != "" and v is not None:
                 lines.append(f"  {k}: {v}")
+        # only the relevant condition's Your Price survives (the other was
+        # blanked upstream), so show the one figure the user actually lists at
         your_new = row.get("Your Price New (AUD)", "")
         your_used = row.get("Your Price Used (AUD)", "")
-        if your_new != "" or your_used != "":
-            lines.append("  >> YOUR MOVE — undercut the lot by 10% (delivered):")
-            if your_new != "":
-                lines.append(f"       NEW   list at  ${your_new}")
-            if your_used != "":
-                lines.append(f"       USED  list at  ${your_used}")
+        if your_new != "":
+            lines.append(f"  >> YOUR MOVE — list NEW at  ${your_new}  (10% under the lowest, delivered)")
+        if your_used != "":
+            lines.append(f"  >> YOUR MOVE — list USED at ${your_used}  (10% under the lowest, delivered)")
         lines.append("")
     lines += [
         "=" * 52,
@@ -314,18 +317,24 @@ def ebay_run(name: str):
         # No creds / eBay down: keep going — files fall back to barcode names.
         warning = f"eBay lookup skipped: {e}"
         rows = [{"Barcode": b} for b in barcodes.values()]
+
+    # Tag each row new/used and drop the OTHER condition's prices — the user is
+    # selling this disc as one or the other, so the new-copy price is just
+    # noise when they're listing a used one (and vice versa). rows come back in
+    # barcodes-dict order; a barcode sold in BOTH zones keeps its own label.
+    for (key, _bc), row in zip(barcodes.items(), rows):
+        stock = "new" if key.isdigit() else "used"
+        row["Stock"] = stock
+        drop = "Used" if stock == "new" else "New"
+        row[f"Lowest Price {drop} (AUD)"] = ""
+        row[f"Your Price {drop} (AUD)"] = ""
+
     try:
         ebay.write_csv(rows, d / "Ebay_Details.csv")
         _write_listing_txt(rows, d / "Ebaby Listings.txt")
     except OSError as e:
         # e.g. the CSV is open in Excel — don't lose the paid eBay fetch
         warning = (warning or "") + f" Couldn't write listing files ({e}); close them and re-run."
-
-    # tag each row new/used AFTER the CSV is written (extra keys would break
-    # DictWriter). rows come back in barcodes-dict order, so zip keys to rows
-    # — a barcode sold in BOTH zones must not collapse to one stock label.
-    for (key, _bc), row in zip(barcodes.items(), rows):
-        row["Stock"] = "new" if key.isdigit() else "used"
 
     barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
     key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}

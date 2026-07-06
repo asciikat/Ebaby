@@ -38,14 +38,28 @@ CSV_HEADERS = [
 UNDERCUT_RATIO = 0.90
 
 
+def _charm(price):
+    """Snap to the nearest attractive price point — a whole dollar (.00) or a
+    .99 — so a listing shows $26.99 / $27.00, never $27.43. Picks whichever is
+    closer, so on cheap discs it rounds DOWN to stay genuinely under the comp
+    rather than up to a barely-cheaper .99."""
+    if price < 1.0:
+        return round(price, 2)          # too cheap to charm-round sensibly
+    dollar = round(price)
+    nine9 = dollar - 0.01               # e.g. 27 -> 26.99
+    even = float(dollar)                # e.g. 27.00
+    best = nine9 if abs(nine9 - price) <= abs(even - price) else even
+    return round(best, 2)
+
+
 def _undercut(price):
-    """A competitive delivered price `UNDERCUT_RATIO` of the cheapest comp, or
-    "" when there was no comp to undercut. This is a target DELIVERED total
-    (item + your postage), since that's the number buyers actually compare and
-    eBay sorts on."""
+    """A competitive delivered price ~`UNDERCUT_RATIO` of the cheapest comp,
+    charm-rounded to a .99/.00, or "" when there was no comp to undercut. This
+    is a target DELIVERED total (item + your postage), since that's the number
+    buyers actually compare and eBay sorts on."""
     if price is None:
         return ""
-    return round(price * UNDERCUT_RATIO, 2)
+    return _charm(price * UNDERCUT_RATIO)
 
 
 class EbayUnavailable(RuntimeError):
@@ -249,7 +263,9 @@ def write_csv(rows, out_path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # utf-8-sig: without the BOM, Excel renders accented titles as mojibake
     with open(out_path, mode="w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+        # extrasaction="ignore": rows carry an internal "Stock" tag that isn't
+        # a CSV column — drop it instead of raising.
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)

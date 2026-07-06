@@ -83,9 +83,9 @@ def test_fetch_listing_row_prefers_new_price_and_specifics(mock_get):
     assert row["Genre"] == "Horror"
     assert row["Lowest Price New (AUD)"] == 10.00
     assert row["Lowest Price Used (AUD)"] == 5.00
-    # competitive undercut = 10% off the cheapest delivered comp
-    assert row["Your Price New (AUD)"] == 9.00
-    assert row["Your Price Used (AUD)"] == 4.50
+    # competitive undercut = 10% off the cheapest comp, charm-rounded
+    assert row["Your Price New (AUD)"] == 9.00    # 10.00 -> 9.00
+    assert row["Your Price Used (AUD)"] == 4.00   # 5.00 -> 4.50 -> charm 4.00
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -184,11 +184,18 @@ def test_write_csv_matches_the_required_columns(tmp_path):
                       "Your Price New (AUD),Your Price Used (AUD)")
 
 
-def test_undercut_is_ten_percent_off_and_blank_when_no_comp():
-    assert ebay._undercut(30.0) == 27.0
-    assert ebay._undercut(50.0) == 45.0
-    assert ebay._undercut(12.34) == round(12.34 * 0.9, 2)  # rounded to cents
-    assert ebay._undercut(None) == ""                      # no comp -> blank
+def test_undercut_is_ten_percent_off_charmed_and_blank_when_no_comp():
+    assert ebay._undercut(30.0) == 27.0     # 27.00
+    assert ebay._undercut(22.20) == 19.99   # 22.20*0.9 = 19.98 -> 19.99
+    assert ebay._undercut(None) == ""       # no comp -> blank
+
+
+def test_charm_snaps_to_a_dollar_or_ninety_nine():
+    assert ebay._charm(27.85) == 27.99
+    assert ebay._charm(27.20) == 27.00
+    assert ebay._charm(27.43) == 27.00
+    assert ebay._charm(8.955) == 8.99       # near .99 -> up a hair, still under
+    assert ebay._charm(4.50) == 4.00        # cheap disc rounds DOWN, stays under
 
 
 @patch("ebaby.stages.ebay._SESSION.get")

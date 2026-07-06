@@ -295,3 +295,26 @@ def test_color_run_shares_one_white_balance_across_a_set(mock_cc, client, tmp_pa
     assert passed[0] is None                 # first shot: compute fresh
     assert passed[1] == (1.1, 1.0, 0.9)      # rest: reuse the set's balance
     assert passed[2] == (1.1, 1.0, 0.9)
+
+
+@patch("ebaby.server.ebay.fetch_all")
+@patch("ebaby.server.ebay.get_token", return_value="tok")
+def test_ebay_run_keeps_only_the_relevant_condition_price(mock_token, mock_fetch, client, tmp_path):
+    """A disc uploaded to the USED zone (letter key) must not carry the
+    new-copy price around — the user asked to only see the relevant one."""
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"a": "400638133393"}          # letter key => USED
+    batch.write_state(d, state)
+    mock_fetch.return_value = [{
+        "Barcode": "400638133393", "Image Set Name": "Matrix", "Title": "The Matrix",
+        "Lowest Price New (AUD)": 40.0, "Lowest Price Used (AUD)": 25.0,
+        "Your Price New (AUD)": 35.99, "Your Price Used (AUD)": 22.5,
+    }]
+    client.post("/api/batches/run1/ebay/run")
+    row = batch.read_state(d)["ebay_rows"][0]
+    assert row["Stock"] == "used"
+    assert row["Lowest Price Used (AUD)"] == 25.0 and row["Your Price Used (AUD)"] == 22.5
+    assert row["Lowest Price New (AUD)"] == "" and row["Your Price New (AUD)"] == ""
+    txt = (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
+    assert "list USED at" in txt and "list NEW" not in txt

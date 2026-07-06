@@ -283,30 +283,24 @@ function renderFenceCards(rows) {
   const wrap = $("#fence-cards");
   wrap.innerHTML = "";
   for (const row of rows) {
+    // one disc is sold as new OR used — show only that condition's numbers
     const isNew = row.Stock === "new";
-    const bigLabel = isNew ? "NEW" : "USED";
-    const bigPrice = priceTag(isNew ? row["Lowest Price New (AUD)"]
-                                    : row["Lowest Price Used (AUD)"]);
-    const smallLabel = isNew ? "USED" : "NEW";
-    const smallPrice = priceTag(isNew ? row["Lowest Price Used (AUD)"]
-                                      : row["Lowest Price New (AUD)"]);
-    const yourBig = priceTag(isNew ? row["Your Price New (AUD)"]
-                                   : row["Your Price Used (AUD)"]);
-    const yourSmall = priceTag(isNew ? row["Your Price Used (AUD)"]
-                                     : row["Your Price New (AUD)"]);
+    const label = isNew ? "NEW" : "USED";
+    const found = priceTag(isNew ? row["Lowest Price New (AUD)"]
+                                 : row["Lowest Price Used (AUD)"]);
+    const mine = priceTag(isNew ? row["Your Price New (AUD)"]
+                                : row["Your Price Used (AUD)"]);
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
       `<div class="score-title">${row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC"}</div>` +
       `<div class="score-prices">` +
-        `<div class="score-big"><span class="label">${bigLabel}</span>${bigPrice}</div>` +
-        `<div class="score-small"><span class="label">${smallLabel}</span>${smallPrice}</div>` +
+        `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
       `</div>` +
       `<div class="score-move">` +
         `<span class="move-tag">YOUR MOVE · 10% UNDER</span>` +
         `<div class="move-prices">` +
-          `<div class="move-big"><span class="label">${bigLabel}</span>${yourBig}</div>` +
-          `<div class="move-small"><span class="label">${smallLabel}</span>${yourSmall}</div>` +
+          `<div class="move-big"><span class="label">LIST ${label} AT</span>${mine}</div>` +
         `</div>` +
       `</div>`;
     wrap.appendChild(card);
