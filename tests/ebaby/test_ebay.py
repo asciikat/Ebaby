@@ -83,6 +83,9 @@ def test_fetch_listing_row_prefers_new_price_and_specifics(mock_get):
     assert row["Genre"] == "Horror"
     assert row["Lowest Price New (AUD)"] == 10.00
     assert row["Lowest Price Used (AUD)"] == 5.00
+    # competitive undercut = 10% off the cheapest delivered comp
+    assert row["Your Price New (AUD)"] == 9.00
+    assert row["Your Price Used (AUD)"] == 4.50
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -166,17 +169,26 @@ def test_cheapest_of_multiple_postage_options_is_used(mock_get):
     assert row["Lowest Price New (AUD)"] == 12.50
 
 
-def test_write_csv_matches_the_thirteen_required_columns(tmp_path):
+def test_write_csv_matches_the_required_columns(tmp_path):
     rows = [{"Barcode": "123", "Image Set Name": "Movie", "Title": "The Movie",
              "Region Code": "4", "Genre": "Drama", "Type": "", "Season": "",
              "Actor": "", "Studio": "", "Language": "", "Rating": "",
-             "Lowest Price New (AUD)": 12.5, "Lowest Price Used (AUD)": ""}]
+             "Lowest Price New (AUD)": 12.5, "Lowest Price Used (AUD)": "",
+             "Your Price New (AUD)": 11.25, "Your Price Used (AUD)": ""}]
     out = tmp_path / "Ebay_Details.csv"
     ebay.write_csv(rows, out)
     header = out.read_text(encoding="utf-8-sig").splitlines()[0]
     assert header == ("Barcode,Image Set Name,Title,Region Code,Genre,Type,"
                       "Season,Actor,Studio,Language,Rating,"
-                      "Lowest Price New (AUD),Lowest Price Used (AUD)")
+                      "Lowest Price New (AUD),Lowest Price Used (AUD),"
+                      "Your Price New (AUD),Your Price Used (AUD)")
+
+
+def test_undercut_is_ten_percent_off_and_blank_when_no_comp():
+    assert ebay._undercut(30.0) == 27.0
+    assert ebay._undercut(50.0) == 45.0
+    assert ebay._undercut(12.34) == round(12.34 * 0.9, 2)  # rounded to cents
+    assert ebay._undercut(None) == ""                      # no comp -> blank
 
 
 @patch("ebaby.stages.ebay._SESSION.get")

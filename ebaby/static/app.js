@@ -290,6 +290,10 @@ function renderFenceCards(rows) {
     const smallLabel = isNew ? "USED" : "NEW";
     const smallPrice = priceTag(isNew ? row["Lowest Price Used (AUD)"]
                                       : row["Lowest Price New (AUD)"]);
+    const yourBig = priceTag(isNew ? row["Your Price New (AUD)"]
+                                   : row["Your Price Used (AUD)"]);
+    const yourSmall = priceTag(isNew ? row["Your Price Used (AUD)"]
+                                     : row["Your Price New (AUD)"]);
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
@@ -297,6 +301,13 @@ function renderFenceCards(rows) {
       `<div class="score-prices">` +
         `<div class="score-big"><span class="label">${bigLabel}</span>${bigPrice}</div>` +
         `<div class="score-small"><span class="label">${smallLabel}</span>${smallPrice}</div>` +
+      `</div>` +
+      `<div class="score-move">` +
+        `<span class="move-tag">YOUR MOVE · 10% UNDER</span>` +
+        `<div class="move-prices">` +
+          `<div class="move-big"><span class="label">${bigLabel}</span>${yourBig}</div>` +
+          `<div class="move-small"><span class="label">${smallLabel}</span>${yourSmall}</div>` +
+        `</div>` +
       `</div>`;
     wrap.appendChild(card);
   }

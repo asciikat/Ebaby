@@ -28,7 +28,24 @@ CSV_HEADERS = [
     "Barcode", "Image Set Name", "Title", "Region Code", "Genre", "Type",
     "Season", "Actor", "Studio", "Language", "Rating",
     "Lowest Price New (AUD)", "Lowest Price Used (AUD)",
+    "Your Price New (AUD)", "Your Price Used (AUD)",
 ]
+
+# Undercut the cheapest comparable DELIVERED price by this much, so the listing
+# sits at the top of the buyer's price-sorted results without giving away
+# margin. DVDs are low-dollar and heavily comparison-shopped — 10% reads as
+# clearly cheaper where 5% barely registers on a results page.
+UNDERCUT_RATIO = 0.90
+
+
+def _undercut(price):
+    """A competitive delivered price `UNDERCUT_RATIO` of the cheapest comp, or
+    "" when there was no comp to undercut. This is a target DELIVERED total
+    (item + your postage), since that's the number buyers actually compare and
+    eBay sorts on."""
+    if price is None:
+        return ""
+    return round(price * UNDERCUT_RATIO, 2)
 
 
 class EbayUnavailable(RuntimeError):
@@ -211,6 +228,8 @@ def fetch_listing_row(barcode, token, marketplace=None):
         "Rating": aspects.get("rating", aspects.get("movie/tv title", "")),
         "Lowest Price New (AUD)": round(lowest_new, 2) if lowest_new is not None else "",
         "Lowest Price Used (AUD)": round(lowest_used, 2) if lowest_used is not None else "",
+        "Your Price New (AUD)": _undercut(lowest_new),
+        "Your Price Used (AUD)": _undercut(lowest_used),
     }
 
 

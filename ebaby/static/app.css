@@ -218,6 +218,51 @@ td input {
   vertical-align: middle;
 }
 
+/* "YOUR MOVE" — the competitive price, full-width gold banner under the comps */
+.score-move {
+  flex: 1 1 100%;
+  margin-top: .7rem;
+  padding-top: .8rem;
+  border-top: 2px dashed #34343e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.move-tag {
+  font-family: var(--headline);
+  font-size: 1.6rem;
+  letter-spacing: .12em;
+  color: var(--amber);
+  background: rgba(246, 168, 33, .12);
+  border: 2px solid var(--amber);
+  border-radius: 6px;
+  padding: .05em .55em;
+  white-space: nowrap;
+}
+.move-prices { text-align: right; margin-left: auto; }
+.move-big {
+  font-family: var(--headline);
+  font-size: 3.6rem;
+  color: var(--amber);
+  text-shadow: 3px 3px 0 #000, 0 0 22px rgba(246, 168, 33, .4);
+  white-space: nowrap;
+}
+.move-small {
+  font-family: var(--headline);
+  font-size: 1.5rem;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.move-prices .label {
+  font-size: .5em;
+  letter-spacing: .15em;
+  color: var(--green);
+  margin-right: .45em;
+  vertical-align: middle;
+}
+
 details summary {
   font-family: var(--headline);
   font-size: 1.6rem;

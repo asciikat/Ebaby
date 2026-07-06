@@ -280,8 +280,16 @@ def _write_listing_txt(rows, out_path):
         lines.append(f"--- SCORE #{i} " + "-" * 36)
         lines.append(f"Barcode: {row.get('Barcode', '?')}")
         for k, v in row.items():
-            if k != "Barcode" and v:
+            if k != "Barcode" and not k.startswith("Your Price") and v != "" and v is not None:
                 lines.append(f"  {k}: {v}")
+        your_new = row.get("Your Price New (AUD)", "")
+        your_used = row.get("Your Price Used (AUD)", "")
+        if your_new != "" or your_used != "":
+            lines.append("  >> YOUR MOVE — undercut the lot by 10% (delivered):")
+            if your_new != "":
+                lines.append(f"       NEW   list at  ${your_new}")
+            if your_used != "":
+                lines.append(f"       USED  list at  ${your_used}")
         lines.append("")
     lines += [
         "=" * 52,
