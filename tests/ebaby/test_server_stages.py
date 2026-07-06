@@ -318,3 +318,28 @@ def test_ebay_run_keeps_only_the_relevant_condition_price(mock_token, mock_fetch
     assert row["Lowest Price New (AUD)"] == "" and row["Your Price New (AUD)"] == ""
     txt = (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
     assert "list USED at" in txt and "list NEW" not in txt
+
+
+@patch("ebaby.server.ebay.write_csv")
+@patch("ebaby.server.ebay.fetch_all")
+@patch("ebaby.server.ebay.get_token", return_value="tok")
+def test_listing_txt_totals_only_the_ten_percent_prices(mock_token, mock_fetch, mock_write, client, tmp_path):
+    """The overall total sums the suggested (10%-under) prices across discs —
+    NOT the lowest-comp prices."""
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"a": "111", "2": "222"}   # 'a' => used, '2' => new
+    batch.write_state(d, state)
+    mock_fetch.return_value = [
+        {"Barcode": "111", "Title": "A", "Lowest Price Used (AUD)": 25.0,
+         "Your Price Used (AUD)": 22.99, "Lowest Price New (AUD)": 40.0,
+         "Your Price New (AUD)": 35.99},
+        {"Barcode": "222", "Title": "B", "Lowest Price New (AUD)": 12.0,
+         "Your Price New (AUD)": 9.99, "Lowest Price Used (AUD)": 7.0,
+         "Your Price Used (AUD)": 5.99},
+    ]
+    client.post("/api/batches/run1/ebay/run")
+    content = (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
+    # used 22.99 (disc A) + new 9.99 (disc B) = 32.98 — the relevant ones only
+    assert "TOTAL TAKE" in content
+    assert "$32.98" in content

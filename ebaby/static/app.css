@@ -263,6 +263,33 @@ td input {
   vertical-align: middle;
 }
 
+/* the whole-pile total — sum of the 10%-under prices only */
+.score-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.4rem 0 .5rem;
+  padding: 1.1rem 1.5rem;
+  background: linear-gradient(90deg, rgba(158, 199, 36, .10), rgba(246, 168, 33, .10));
+  border: 3px solid var(--green);
+  border-radius: 12px;
+}
+.score-total-label {
+  font-family: var(--headline);
+  font-size: 2.6rem;
+  letter-spacing: .12em;
+  color: var(--amber);
+}
+.score-total-value {
+  font-family: var(--headline);
+  font-size: 5.2rem;
+  color: var(--green);
+  text-shadow: 3px 3px 0 #000, 0 0 30px rgba(158, 199, 36, .5);
+  white-space: nowrap;
+}
+
 details summary {
   font-family: var(--headline);
   font-size: 1.6rem;

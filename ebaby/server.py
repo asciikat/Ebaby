@@ -263,6 +263,19 @@ def _windows_path(p):
     return s
 
 
+def _your_price(row):
+    """The one suggested (10%-under) price for a row — whichever condition
+    survived the relevant-only blanking — as a float, or 0.0 if none."""
+    for k in ("Your Price New (AUD)", "Your Price Used (AUD)"):
+        v = row.get(k, "")
+        if v != "" and v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
 def _write_listing_txt(rows, out_path):
     lines = [
         "=" * 52,
@@ -294,10 +307,13 @@ def _write_listing_txt(rows, out_path):
         if your_used != "":
             lines.append(f"  >> YOUR MOVE — list USED at ${your_used}  (10% under the lowest, delivered)")
         lines.append("")
+    total = sum(_your_price(row) for row in rows)
     lines += [
         "=" * 52,
         f"  {len(rows)} disc(s) fenced. Now go list 'em on eBay",
         "  before the heat comes down.",
+        "",
+        f"  TOTAL TAKE (all your 10%-under prices): ${total:.2f}",
         "=" * 52,
     ]
     out_path.write_text("\n".join(lines), encoding="utf-8")

@@ -305,7 +305,19 @@ function renderFenceCards(rows) {
       `</div>`;
     wrap.appendChild(card);
   }
-  if (!rows.length) wrap.innerHTML = `<div class="hint">The fence had nothing to say.</div>`;
+  if (!rows.length) { wrap.innerHTML = `<div class="hint">The fence had nothing to say.</div>`; return; }
+  // overall total = sum of the 10%-under prices only (what you'd list the
+  // whole pile at), not the lowest-comp prices
+  const total = rows.reduce((sum, row) => {
+    const v = parseFloat(row["Your Price New (AUD)"]) || parseFloat(row["Your Price Used (AUD)"]) || 0;
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const totalRow = document.createElement("div");
+  totalRow.className = "score-total";
+  totalRow.innerHTML =
+    `<span class="score-total-label">TOTAL TAKE · YOUR PRICES</span>` +
+    `<span class="score-total-value">$${total.toFixed(2)}</span>`;
+  wrap.appendChild(totalRow);
 }
 
 function renderEbayPanel(e) {
