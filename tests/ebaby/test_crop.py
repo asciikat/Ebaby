@@ -72,3 +72,37 @@ def test_crop_edges_feather_into_the_white_background():
     assert x < w, "case never appeared"
     edge = out[h // 2, x].astype(int).mean()
     assert edge > centre + 10
+
+
+def _open_case_like(w=1000, h=752):
+    """Stand-in for an 'inside' shot: two solid disc-like circles on white,
+    no single rectangle to fit — the shape that broke every strict tier."""
+    frame = np.full((h, w, 3), 245, dtype=np.uint8)
+    cv2.circle(frame, (w // 3, h // 2), min(w, h) // 4, (90, 90, 90), -1)
+    cv2.circle(frame, (2 * w // 3, h // 2), min(w, h) // 4, (90, 90, 90), -1)
+    return frame
+
+
+def test_loose_tier_crops_an_open_case_that_fails_every_strict_tier():
+    """The strict tiers require the shape to fill ~85% of its fitted
+    rectangle; two discs with a gap between them never will. Before the
+    loose tier existed, this fell all the way back to the raw, uncropped
+    photo (background included) — exactly what broke the 'inside' shots in
+    the 2026-07-06 batch (Goober/King Kong open-case photos)."""
+    frame = _open_case_like()
+    result = crop.detect_crop_box(frame)
+    assert result is not None
+    quad, coverage = result
+    # must have trimmed SOME of the surrounding white, not returned the
+    # full, uncropped frame
+    assert not np.allclose(quad, [[0, 0], [frame.shape[1], 0],
+                                  [frame.shape[1], frame.shape[0]], [0, frame.shape[0]]])
+
+
+def test_loose_tier_still_rejects_a_truly_blank_frame():
+    """rembg hallucinates a faint ~14% 'foreground' blob even on a uniform
+    blank frame (measured directly) — the loose tier's coverage floor must
+    sit above that noise floor or every accidentally-blank photo gets a
+    bogus crop instead of a clean 'nothing detected' result."""
+    blank = np.full((400, 300, 3), 245, dtype=np.uint8)
+    assert crop.detect_crop_box(blank) is None

@@ -78,6 +78,10 @@ def _box_from_mask(m, scale, full_shape):
         return None
 
     box = cv2.boxPoints(rect) / scale
+    return _expand_and_clip(box, full_shape), coverage
+
+
+def _expand_and_clip(box, full_shape):
     # expand 1.5% outward from the centroid: the rembg matte tends to sit a
     # hair INSIDE the case, which used to shave the edges off the crop
     center = box.mean(axis=0)
@@ -85,7 +89,40 @@ def _box_from_mask(m, scale, full_shape):
     h_full, w_full = full_shape[:2]
     box[:, 0] = np.clip(box[:, 0], 0, w_full - 1)
     box[:, 1] = np.clip(box[:, 1], 0, h_full - 1)
-    return box.astype(np.float32), coverage
+    return box.astype(np.float32)
+
+
+def _loose_box_from_mask(m, scale, full_shape):
+    """Last-resort fit: an axis-aligned bounding box over EVERY sizeable
+    blob, with NO solidity requirement. An open DVD case (the 'inside' shot)
+    is a hinged double panel plus two disc circles — it never fills a
+    rectangle the way a flat cover does, so the strict rect-fit in
+    _box_from_mask always rejects it and the caller used to fall all the way
+    back to the uncropped photo, background and all. This still trims that
+    background out, even if the box isn't perfectly tight."""
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)), iterations=2)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15)), iterations=3)
+    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    frame_area = m.shape[0] * m.shape[1]
+    # every blob at least 1% of the frame — small enough to catch a lone disc
+    # label, large enough to ignore speckle noise
+    keep = [c for c in cnts if cv2.contourArea(c) >= 0.01 * frame_area]
+    if not keep:
+        return None
+    coverage = float(sum(cv2.contourArea(c) for c in keep)) / float(frame_area)
+    # floor is well above rembg's spurious ~14% hallucination on a blank/
+    # caseless photo (measured directly), well below real open-case content
+    # (measured at 32%-45% on real inside shots) — see test_crop.py
+    if not (0.18 <= coverage <= 0.98):
+        return None
+    merged = np.vstack(keep)
+    x, y, w, h = cv2.boundingRect(merged)
+    box = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], np.float32) / scale
+    return _expand_and_clip(box, full_shape), coverage
 
 
 def detect_crop_box(bgr, rembg_model="isnet-general-use"):
@@ -93,30 +130,46 @@ def detect_crop_box(bgr, rembg_model="isnet-general-use"):
     image coordinates, in the exact order warp_to_quad expects — this is the
     box the browser editor should seed its draggable corners from.
 
-    Three lines of attack, strongest first:
+    Four lines of attack, strongest first:
     1. rembg matte at a confident threshold (180)
     2. the same matte at looser thresholds (120, 60) — soft/uncertain mattes
        on dark or glossy cases still outline the right region
     3. paper segmentation — the case is whatever ISN'T bright white paper;
-       works even when the AI matte fails completely"""
+       works even when the AI matte fails completely
+    4. loose axis-aligned bounding box, no solidity check — an OPEN case
+       (the 'inside' shot: hinged double panel + two disc circles) never
+       fills a rectangle the way a flat cover does, so tiers 1-3 always
+       reject it. This still trims the surrounding background out, which
+       beats the old behaviour of falling back to the raw, uncropped photo."""
     h, w = bgr.shape[:2]
     scale = _PROC_EDGE / float(max(h, w))
     small = cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))))
 
     alpha_small = rembg_matte(small, rembg_model)
+    loosest_alpha_mask = None
     if alpha_small is not None and alpha_small.shape == small.shape[:2]:
         for thr in (180, 120, 60):
             _, m = cv2.threshold(alpha_small, thr, 255, cv2.THRESH_BINARY)
             found = _box_from_mask(m, scale, bgr.shape)
             if found is not None:
                 return found
+            loosest_alpha_mask = m  # keep the loosest (thr=60) for tier 4
 
     hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
     s, v = hsv[:, :, 1], hsv[:, :, 2]
+    loosest_paper_mask = None
     for v_thr, s_thr in ((160, 60), (140, 80), (120, 90)):
         paper = (v > v_thr) & (s < s_thr)
         case = np.where(paper, 0, 255).astype(np.uint8)
         found = _box_from_mask(case, scale, bgr.shape)
+        if found is not None:
+            return found
+        loosest_paper_mask = case  # keep the loosest (120,90) for tier 4
+
+    for mask in (loosest_alpha_mask, loosest_paper_mask):
+        if mask is None:
+            continue
+        found = _loose_box_from_mask(mask, scale, bgr.shape)
         if found is not None:
             return found
     return None
