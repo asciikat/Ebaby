@@ -125,6 +125,16 @@ def lift_whites(bgr_img: np.ndarray, target: float = 247.0,
     return _match_dtype(f, bgr_img)
 
 
+def lift_midtones(bgr_img: np.ndarray, gamma: float = 0.82) -> np.ndarray:
+    """Gamma lift: opens up dark cover art (the murky-purple problem) while
+    pinning black and white endpoints, so it brightens the BODY of the image
+    without washing out the paper or greying the blacks."""
+    if gamma == 1.0:
+        return bgr_img
+    f = 255.0 * np.power(np.clip(_as_float(bgr_img), 0, 255) / 255.0, gamma)
+    return _match_dtype(f, bgr_img)
+
+
 def _s_curve_float(f, strength):
     """Sigmoid contrast in float, endpoints pinned to [0,255] (same shape the
     old uint8 LUT produced, without the 256-step quantisation)."""
@@ -177,12 +187,16 @@ def enhance_image(bgr_img: np.ndarray, contrast: float = 1.0,
     return _match_dtype(f, bgr_img)
 
 
-# Listing-photo look: gentle contrast, vibrance (protects vivid covers),
-# crisp small-radius sharpen. Vibrance is protected, so it's set a touch
-# higher than a flat multiply would be to land the same overall punch.
-POP_CONTRAST = 1.4
-POP_SATURATION = 1.28
+# Listing-photo look, tuned on a real dark cover (Goober back, 2026-07-06):
+# strong paper lift toward clean white, a midtone gamma that opens up murky
+# cover art, vibrance run hot (it protects already-vivid pixels so it can),
+# contrast eased so the gamma lift isn't crushed straight back down.
+POP_CONTRAST = 1.3
+POP_SATURATION = 1.4
 POP_SHARPEN = 1.5
+LIFT_TARGET = 250.0
+LIFT_MAX_GAIN = 1.6
+MIDTONE_GAMMA = 0.82
 
 
 def process_raw(raw_path, denoise: str = "light") -> np.ndarray:
@@ -215,7 +229,8 @@ def color_correct_file(raw_path, out_path, denoise: str = "light",
     bgr = process_raw(raw_path, denoise=denoise)       # float32 [0,255]
     current_gains = gains if gains is not None else get_white_balance_gains(bgr)
     f = apply_white_balance(bgr, current_gains)
-    f = lift_whites(f)
+    f = lift_whites(f, target=LIFT_TARGET, max_gain=LIFT_MAX_GAIN)
+    f = lift_midtones(f, MIDTONE_GAMMA)
     f = enhance_image(f, contrast, saturation, sharpen)
     _finish(f, out_path)
     return current_gains
@@ -233,7 +248,8 @@ def color_correct_plain_file(src_path, out_path, contrast: float = POP_CONTRAST,
     f = bgr.astype(np.float32)
     current_gains = gains if gains is not None else get_white_balance_gains(f)
     f = apply_white_balance(f, current_gains)
-    f = lift_whites(f)
+    f = lift_whites(f, target=LIFT_TARGET, max_gain=LIFT_MAX_GAIN)
+    f = lift_midtones(f, MIDTONE_GAMMA)
     f = enhance_image(f, contrast, saturation, sharpen)
     _finish(f, out_path)
     return current_gains

@@ -99,3 +99,13 @@ def test_lift_whites_soft_knee_never_hard_clips_a_bright_frame():
     bright[:5, :] = 240                                  # paper border
     out = color.lift_whites(bright)
     assert out.max() <= 255 and out[20, 20].mean() > 240  # lifted, not crushed
+
+
+def test_lift_midtones_brightens_body_pins_endpoints():
+    img = np.full((10, 10, 3), 100, dtype=np.uint8)
+    img[0, 0] = 0
+    img[0, 1] = 255
+    out = color.lift_midtones(img, gamma=0.82)
+    assert out[5, 5].mean() > 100        # midtones opened up
+    assert out[0, 0].mean() == 0         # black pinned
+    assert out[0, 1].mean() == 255       # white pinned
