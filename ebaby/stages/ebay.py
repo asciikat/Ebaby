@@ -39,17 +39,12 @@ UNDERCUT_RATIO = 0.90
 
 
 def _charm(price):
-    """Snap to the nearest attractive price point — a whole dollar (.00) or a
-    .99 — so a listing shows $26.99 / $27.00, never $27.43. Picks whichever is
-    closer, so on cheap discs it rounds DOWN to stay genuinely under the comp
-    rather than up to a barely-cheaper .99."""
+    """Round to the nearest whole dollar and knock off a cent, so every
+    suggested price ends in .99 — $26.99, $8.99 — the classic eBay look.
+    (round-half-up, not banker's rounding, so it's predictable.)"""
     if price < 1.0:
-        return round(price, 2)          # too cheap to charm-round sensibly
-    dollar = round(price)
-    nine9 = dollar - 0.01               # e.g. 27 -> 26.99
-    even = float(dollar)                # e.g. 27.00
-    best = nine9 if abs(nine9 - price) <= abs(even - price) else even
-    return round(best, 2)
+        return round(price, 2)          # too cheap to charm sensibly
+    return round(int(price + 0.5) - 0.01, 2)
 
 
 def _undercut(price):
