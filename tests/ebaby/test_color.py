@@ -76,6 +76,26 @@ def test_color_correct_plain_file_writes_enhanced_png(tmp_path):
     img[:8, :] = 200
     cv2.imwrite(str(src), img)
     out = tmp_path / "a_front.png"
-    assert color.color_correct_plain_file(src, out) is True
+    gains = color.color_correct_plain_file(src, out)
+    assert gains and len(gains) == 3          # returns the WB gains used
     assert out.exists()
-    assert color.color_correct_plain_file(tmp_path / "missing.jpg", out) is False
+    assert color.color_correct_plain_file(tmp_path / "missing.jpg", out) is None
+
+
+def test_vibrance_protects_already_saturated_colours():
+    """Vibrance must push a dull pixel more than an already-vivid one — the
+    whole point of vibrance over a flat saturation multiply."""
+    dull = np.full((1, 1, 3), (150, 130, 120), dtype=np.uint8)   # low sat
+    vivid = np.full((1, 1, 3), (240, 20, 20), dtype=np.uint8)     # high sat
+    def sat(img):
+        return int(cv2.cvtColor(img, cv2.COLOR_BGR2HSV)[0, 0, 1])
+    dull_gain = sat(color.enhance_image(dull, contrast=0.0, saturation=1.4, sharpen=1.0)) - sat(dull)
+    vivid_gain = sat(color.enhance_image(vivid, contrast=0.0, saturation=1.4, sharpen=1.0)) - sat(vivid)
+    assert dull_gain > vivid_gain
+
+
+def test_lift_whites_soft_knee_never_hard_clips_a_bright_frame():
+    bright = np.full((40, 40, 3), 250, dtype=np.uint8)  # near-white all over
+    bright[:5, :] = 240                                  # paper border
+    out = color.lift_whites(bright)
+    assert out.max() <= 255 and out[20, 20].mean() > 240  # lifted, not crushed

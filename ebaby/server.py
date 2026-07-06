@@ -175,17 +175,30 @@ def color_run(name: str):
             if key not in by_stem or (ext in RAW_EXTS and
                                       by_stem[key].suffix.lower() not in RAW_EXTS):
                 by_stem[key] = src
-    todo = list(by_stem.values())
-    count = 0
-    _set_progress(d, state, "color", 0, len(todo))
-    for i, src in enumerate(todo, 1):
-        out_path = out_dir / f"{src.stem}.png"
-        if src.suffix.lower() in RAW_EXTS:
-            color.color_correct_file(src, out_path)
-            count += 1
-        elif color.color_correct_plain_file(src, out_path):
-            count += 1
-        _set_progress(d, state, "color", i, len(todo))
+    # group the deduped shots by SET (zone + key before the first "_") so the
+    # front/back/inside of one disc share a single white balance and don't
+    # come out with three slightly different colour casts
+    sets = {}
+    for (zone, stem), src in by_stem.items():
+        sets.setdefault((zone, stem.split("_")[0]), []).append(src)
+    total = sum(len(g) for g in sets.values())
+    count, i = 0, 0
+    _set_progress(d, state, "color", 0, total)
+    for group in sets.values():
+        shared = None
+        for src in sorted(group):
+            out_path = out_dir / f"{src.stem}.png"
+            if src.suffix.lower() in RAW_EXTS:
+                g = color.color_correct_file(src, out_path, gains=shared)
+                count += 1
+            else:
+                g = color.color_correct_plain_file(src, out_path, gains=shared)
+                if g is not None:
+                    count += 1
+            if shared is None and g is not None:
+                shared = g  # first shot sets the balance for the whole set
+            i += 1
+            _set_progress(d, state, "color", i, total)
     batch.advance_stage(d, "color", "barcode")
     return {"colored": count}
 

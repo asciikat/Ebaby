@@ -278,3 +278,20 @@ def test_color_run_raw_plus_jpeg_pair_prefers_raw(mock_cc, client, tmp_path):
     assert resp.json()["colored"] == 1          # one shot, not two
     assert mock_cc.call_count == 1              # and it was the RAW that won
     assert mock_cc.call_args[0][0].suffix == ".dng"
+
+
+@patch("ebaby.server.color.color_correct_file")
+def test_color_run_shares_one_white_balance_across_a_set(mock_cc, client, tmp_path):
+    """front/back/inside of one disc must be colour-corrected with the SAME
+    white balance (first shot computes it, the rest reuse it)."""
+    mock_cc.return_value = (1.1, 1.0, 0.9)  # the gains the first shot "computed"
+    d = _make_batch_at_stage(client, tmp_path, "color")
+    for role in ("front", "back", "inside"):
+        (d / f"1_originals/used/a_{role}.dng").write_bytes(b"x")
+    resp = client.post("/api/batches/run1/color/run")
+    assert resp.status_code == 200
+    assert resp.json()["colored"] == 3
+    passed = [c.kwargs.get("gains") for c in mock_cc.call_args_list]
+    assert passed[0] is None                 # first shot: compute fresh
+    assert passed[1] == (1.1, 1.0, 0.9)      # rest: reuse the set's balance
+    assert passed[2] == (1.1, 1.0, 0.9)
