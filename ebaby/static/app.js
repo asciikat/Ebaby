@@ -6,6 +6,7 @@ const state = {
   batchName: null,
   pending: { used: [], new: [] },   // File objects picked before START
   quads: {},                        // filename -> quad (natural coords)
+  ebayRows: [],                     // the fence-card rows, for in-place edits
 };
 
 /* ---------- tiny helpers ---------- */
@@ -279,6 +280,11 @@ function priceTag(v) {
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
 }
 
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function renderFenceCards(rows) {
   const wrap = $("#fence-cards");
   wrap.innerHTML = "";
@@ -288,11 +294,13 @@ function renderFenceCards(rows) {
     const label = (row.Condition || (row.Stock === "new" ? "New" : "Used")).toUpperCase();
     const found = priceTag(row["Lowest Price (AUD)"]);
     const mine = priceTag(row["Your Price (AUD)"]);
+    const title = row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC";
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
-      `<div class="score-title">${row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC"}</div>` +
+      `<div class="score-title">${esc(title)}</div>` +
       `<div class="score-prices">` +
+        `<button class="fix-btn" data-fix="${esc(row["Image Set Name"] || "")}" title="Wrong disc? Fix the title / price">✎ FIX</button>` +
         `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
       `</div>` +
       `<div class="score-move">` +
@@ -318,22 +326,90 @@ function renderFenceCards(rows) {
   wrap.appendChild(totalRow);
 }
 
-function renderEbayPanel(e) {
-  const warn = e.warning
-    ? `<div class="miss">${e.warning} — photos are named by barcode instead.</div>` : "";
-  $("#listing-info").innerHTML = warn +
-    `Listing text file: <code>${e.listing_txt || "?"}</code><br>` +
-    `Batch folder: <code>${e.folder || "?"}</code>`;
-  renderFenceCards(e.rows || []);
-  const rows = e.rows || [];
+function renderEbayTable(rows) {
   const table = $("#ebay-table");
   if (!rows.length) { table.innerHTML = "<tr><td>No eBay matches found.</td></tr>"; return; }
-  const cols = Object.keys(rows[0]);
+  const cols = Object.keys(rows[0]).filter((c) => !c.startsWith("_") && c !== "Stock");
   table.innerHTML =
-    `<thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead>` +
+    `<thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>` +
     `<tbody>${rows.map((r) =>
-      `<tr>${cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      `<tr>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
 }
+
+function renderEbayPanel(e) {
+  const warn = e.warning
+    ? `<div class="miss">${esc(e.warning)} — photos are named by barcode instead.</div>` : "";
+  $("#listing-info").innerHTML = warn +
+    `Listing text file: <code>${esc(e.listing_txt || "?")}</code><br>` +
+    `Batch folder: <code>${esc(e.folder || "?")}</code>`;
+  state.ebayRows = e.rows || [];
+  renderFenceCards(state.ebayRows);
+  renderEbayTable(state.ebayRows);
+}
+
+/* inline "FIX" editor on a fence card — correct a wrong eBay match's title
+   (and list price); the server re-slugs, renames the photos, and rewrites the
+   CSV + listing text to match. */
+function openFenceEdit(card, row) {
+  card.classList.add("editing");
+  card.innerHTML =
+    `<div class="fix-form">` +
+      `<label class="fix-field">TITLE<input class="fix-title" type="text"></label>` +
+      `<label class="fix-field">LIST PRICE (AUD)<input class="fix-price" type="text" placeholder="e.g. 12.99"></label>` +
+      `<div class="fix-actions">` +
+        `<button class="fix-save">SAVE</button>` +
+        `<button class="fix-cancel">CANCEL</button>` +
+      `</div>` +
+    `</div>`;
+  card.querySelector(".fix-title").value = row.Title || row["Image Set Name"] || "";
+  const p = row["Your Price (AUD)"];
+  card.querySelector(".fix-price").value = (p === "" || p == null) ? "" : p;
+  card.querySelector(".fix-title").focus();
+}
+
+async function saveFenceEdit(card, slug) {
+  const title = card.querySelector(".fix-title").value.trim();
+  const price = card.querySelector(".fix-price").value.trim();
+  const saveBtn = card.querySelector(".fix-save");
+  saveBtn.disabled = true;
+  saveBtn.textContent = "SAVING…";
+  try {
+    const r = await api(`/batches/${state.batchName}/title/edit`, {
+      method: "POST",
+      body: JSON.stringify({ image_set_name: slug, title, price }),
+    });
+    if (r && r.error) {
+      alert(r.error);
+      saveBtn.disabled = false; saveBtn.textContent = "SAVE";
+      return;
+    }
+    state.ebayRows = r.rows || state.ebayRows;
+    if (r.quads) { state.quads = r.quads; renderCropGrid(); } // filenames changed
+    if (r.warning) alert(r.warning);
+    renderFenceCards(state.ebayRows);
+    renderEbayTable(state.ebayRows);
+  } catch (err) {
+    alert(`Save failed: ${err.message}`);
+    saveBtn.disabled = false; saveBtn.textContent = "SAVE";
+  }
+}
+
+$("#fence-cards").addEventListener("click", (ev) => {
+  const fixBtn = ev.target.closest(".fix-btn");
+  if (fixBtn) {
+    const card = fixBtn.closest(".score-card");
+    const slug = fixBtn.dataset.fix;
+    const row = (state.ebayRows || []).find((r) => r["Image Set Name"] === slug);
+    if (row) { card.dataset.slug = slug; openFenceEdit(card, row); }
+    return;
+  }
+  if (ev.target.closest(".fix-cancel")) {
+    renderFenceCards(state.ebayRows || []);
+    return;
+  }
+  const saveBtn = ev.target.closest(".fix-save");
+  if (saveBtn) saveFenceEdit(saveBtn.closest(".score-card"), saveBtn.closest(".score-card").dataset.slug);
+});
 
 /* ---------- 5. the cropper (view + adjust only; NEVER renames) ---------- */
 

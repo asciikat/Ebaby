@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 import cv2
 
-from ebaby import batch
+from ebaby import batch, naming_utils
 from ebaby.stages import barcode_decode, barcode_locate, color, crop, ebay
 from ebaby.stages import rename_seq, rename_title
 
@@ -345,6 +345,19 @@ def ebay_run(name: str):
         row["Lowest Price (AUD)"] = lowest if lowest is not None else ""
         row["Your Price (AUD)"] = ebay._undercut(lowest)
 
+    barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
+    key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
+    state["titles"] = key_to_title
+
+    sets = _collect_sets(d / "2_color")
+    slugs = rename_title.compute_slugs(sets, state.get("barcodes", {}), key_to_title)
+    # Make each row's Image Set Name the ACTUAL deduped file slug, so the CSV,
+    # the listing text, and the renamed photos always agree — and the
+    # title-edit route can locate a disc's files from its row.
+    for (key, _bc), row in zip(barcodes.items(), rows):
+        if key in slugs:
+            row["Image Set Name"] = slugs[key]
+
     try:
         ebay.write_csv(rows, d / "Ebay_Details.csv")
         _write_listing_txt(rows, d / "Ebaby Listings.txt")
@@ -352,12 +365,6 @@ def ebay_run(name: str):
         # e.g. the CSV is open in Excel — don't lose the paid eBay fetch
         warning = (warning or "") + f" Couldn't write listing files ({e}); close them and re-run."
 
-    barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
-    key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}
-    state["titles"] = key_to_title
-    batch.write_state(d, state)
-
-    sets = _collect_sets(d / "2_color")
     plan, notes = rename_title.plan_renames(sets, state.get("barcodes", {}),
                                              key_to_title, d / "4_renamed")
     rename_title.apply_renames(plan)
@@ -385,6 +392,118 @@ def _collect_sets(color_dir):
         key, _, role = p.stem.partition("_")
         sets.setdefault(key, []).append((role, p))
     return sets
+
+
+class TitleEditRequest(BaseModel):
+    image_set_name: str          # the disc's current slug (row["Image Set Name"])
+    title: str
+    price: str | None = None     # optional override of "Your Price (AUD)"
+
+
+# every filename suffix a disc's photos can carry (used: 3 shots; new: +_new)
+_ROLE_TOKENS = ("front", "back", "inside", "front_new", "back_new")
+
+
+def _parse_price(raw):
+    """('' | float, error_or_None) from user price text. '' clears the price."""
+    s = str(raw).strip().lstrip("$").replace(",", "")
+    if s == "":
+        return "", None
+    try:
+        return round(float(s), 2), None
+    except ValueError:
+        return None, f"'{raw}' isn't a price"
+
+
+def _rename_disc_files(d, old_slug, new_slug):
+    """Rename a disc's photos old_slug_* -> new_slug_* across 4_renamed (.png)
+    and 5_cropped (.jpg). Returns {old_png_name: new_png_name} to remap
+    state['quads']. Two-phase with rollback so a locked file can't leave the
+    set half-renamed; raises OSError if it can't complete."""
+    pairs = []
+    for sub, ext in (("4_renamed", ".png"), ("5_cropped", ".jpg")):
+        for role in _ROLE_TOKENS:
+            src = d / sub / f"{old_slug}_{role}{ext}"
+            if src.is_file():
+                pairs.append((src, d / sub / f"{new_slug}_{role}{ext}"))
+    for _src, dst in pairs:
+        if dst.exists():                      # never clobber an unrelated file
+            raise OSError(f"target already exists: {dst.name}")
+    done = []
+    try:
+        for src, dst in pairs:
+            src.rename(dst)
+            done.append((src, dst))
+    except OSError:
+        for src, dst in reversed(done):
+            dst.rename(src)                   # roll back so files stay consistent
+        raise
+    return {f"{old_slug}_{role}.png": f"{new_slug}_{role}.png" for role in _ROLE_TOKENS}
+
+
+@app.post("/api/batches/{name}/title/edit")
+def title_edit(name: str, req: TitleEditRequest):
+    """Correct a disc's Title (and optionally its list price) after the fact —
+    for when eBay returned the wrong match. Re-slugs the Image Set Name,
+    renames the photos to match, remaps the crop quads, and rewrites the CSV +
+    listing text so everything stays in step."""
+    d, state, err = _stage_gate(name)        # any batch that has eBay rows
+    if err:
+        return err
+    rows = state.get("ebay_rows") or []
+    row = next((r for r in rows if r.get("Image Set Name") == req.image_set_name), None)
+    if row is None:
+        return JSONResponse(status_code=404, content={
+            "error": f"no disc named '{req.image_set_name}' in this batch"})
+
+    new_title = (req.title or "").strip()
+    if not new_title:
+        return JSONResponse(status_code=422, content={"error": "title can't be empty"})
+
+    new_price = None
+    if req.price is not None:
+        new_price, price_err = _parse_price(req.price)
+        if price_err:
+            return JSONResponse(status_code=422, content={"error": price_err})
+
+    old_slug = req.image_set_name
+    others = {r.get("Image Set Name") for r in rows if r is not row}
+    new_slug = naming_utils.slugify_title(new_title, fallback=(row.get("Barcode") or old_slug))
+    base, n = new_slug, 2
+    while new_slug in others:                 # keep every disc's slug unique
+        new_slug = f"{base}_{n}"
+        n += 1
+
+    if new_slug != old_slug:
+        try:
+            quad_map = _rename_disc_files(d, old_slug, new_slug)
+        except OSError as e:
+            return JSONResponse(status_code=422, content={
+                "error": f"couldn't rename the photos ({e}); close them and retry"})
+        quads = state.get("quads") or {}
+        state["quads"] = {quad_map.get(k, k): v for k, v in quads.items()}
+
+    row["Title"] = new_title
+    row["Image Set Name"] = new_slug
+    if new_price is not None:
+        row["Your Price (AUD)"] = new_price
+
+    # keep state["titles"] in step so a later re-run/rename stays consistent
+    barcode = row.get("Barcode")
+    if barcode:
+        for k, v in (state.get("barcodes") or {}).items():
+            if v == barcode:
+                state.setdefault("titles", {})[k] = new_title
+
+    warning = None
+    try:
+        ebay.write_csv(rows, d / "Ebay_Details.csv")
+        _write_listing_txt(rows, d / "Ebaby Listings.txt")
+    except OSError as e:
+        warning = f"Couldn't rewrite the listing files ({e}); close them and retry."
+    state["ebay_rows"] = rows
+    batch.write_state(d, state)
+    return {"rows": rows, "quads": state.get("quads", {}), "warning": warning}
 
 
 @app.post("/api/batches/{name}/crop/run")

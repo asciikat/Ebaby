@@ -75,6 +75,24 @@ def test_plan_renames_dedupes_colliding_slugs(tmp_path):
                       "The_Matrix_back.png", "The_Matrix_front.png"]
 
 
+def test_compute_slugs_matches_the_slugs_plan_renames_uses(tmp_path):
+    """compute_slugs must return the exact per-key slug plan_renames names
+    files with (same dedup, same order) — the whole point is that CSV rows can
+    be labelled to agree with the photos on disk."""
+    src = tmp_path / "src"
+    src.mkdir()
+    _touch(src, "a_front.png", "b_front.png")
+    sets = {"a": [("front", src / "a_front.png")],
+            "b": [("front", src / "b_front.png")]}
+    key_to_title = {"a": "The Matrix", "b": "The Matrix"}
+    slugs = rt.compute_slugs(sets, {"a": "1", "b": "2"}, key_to_title)
+    assert slugs == {"a": "The_Matrix", "b": "The_Matrix_2"}
+    # and those slugs are exactly the file basenames plan_renames produces
+    plan, _ = rt.plan_renames(sets, {"a": "1", "b": "2"}, key_to_title, tmp_path / "dst")
+    file_slugs = {new.stem.rsplit("_", 1)[0] for _, new in plan}
+    assert set(slugs.values()) == file_slugs
+
+
 def test_apply_renames_moves_files_and_skips_existing_targets(tmp_path):
     src = tmp_path / "src"
     dst = tmp_path / "dst"

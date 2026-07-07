@@ -176,6 +176,7 @@ td input {
 
 /* fence valuation cards */
 .score-card {
+  position: relative;
   background: var(--panel);
   border: 2px solid #26262e;
   border-left: 6px solid var(--green);
@@ -289,6 +290,66 @@ td input {
   text-shadow: 3px 3px 0 #000, 0 0 30px rgba(158, 199, 36, .5);
   white-space: nowrap;
 }
+
+/* "FIX" — correct a wrong eBay match right on the card */
+.fix-btn {
+  display: inline-block;
+  margin-bottom: .5rem;
+  font-family: var(--headline);
+  font-size: 1.1rem;
+  letter-spacing: .12em;
+  color: var(--dim);
+  background: transparent;
+  border: 2px solid #34343e;
+  border-radius: 6px;
+  padding: .1em .55em;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.fix-btn:hover { color: var(--amber); border-color: var(--amber); }
+
+.fix-form {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+.fix-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  font-family: var(--headline);
+  font-size: 1.2rem;
+  letter-spacing: .1em;
+  color: var(--amber);
+}
+.fix-field:first-of-type { flex: 1 1 320px; }
+.fix-field input {
+  font-family: var(--headline);
+  font-size: 1.9rem;
+  letter-spacing: .02em;
+  color: var(--ink);
+  background: #0d0d11;
+  border: 2px solid #34343e;
+  border-radius: 6px;
+  padding: .3rem .6rem;
+}
+.fix-field input:focus { outline: none; border-color: var(--amber); }
+.fix-actions { display: flex; gap: .6rem; }
+.fix-save, .fix-cancel {
+  font-family: var(--headline);
+  font-size: 1.5rem;
+  letter-spacing: .1em;
+  border-radius: 6px;
+  padding: .35rem 1.1rem;
+  cursor: pointer;
+  border: 2px solid;
+}
+.fix-save { color: #0d0d11; background: var(--green); border-color: var(--green); }
+.fix-save:disabled { opacity: .55; cursor: default; }
+.fix-cancel { color: var(--dim); background: transparent; border-color: #34343e; }
+.fix-cancel:hover { color: var(--ink); border-color: var(--ink); }
 
 details summary {
   font-family: var(--headline);

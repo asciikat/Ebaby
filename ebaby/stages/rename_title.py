@@ -16,6 +16,29 @@ Brand-new (number-keyed) sets get "_new" appended to the role.
 from ebaby.naming_utils import slugify_title
 
 
+def compute_slugs(sets, key_to_barcode, key_to_title):
+    """{set_key: final unique slug} — the exact base name plan_renames will
+    give a set's files, deduped in the same iteration order. Exposed so the
+    caller can label CSV rows with the SAME slug the photos get, keeping the
+    row's "Image Set Name" and the on-disk filenames in lock-step (which the
+    title-edit route relies on to find a disc's files)."""
+    slugs = {}
+    used = set()
+    for key in sets:
+        barcode = key_to_barcode.get(key)
+        if barcode:
+            slug = slugify_title(key_to_title.get(key, ""), fallback="") or barcode
+        else:
+            slug = f"NoBarcode_{key}"
+        base, n = slug, 2
+        while slug in used:
+            slug = f"{base}_{n}"
+            n += 1
+        used.add(slug)
+        slugs[key] = slug
+    return slugs
+
+
 def plan_renames(sets, key_to_barcode, key_to_title, dest_dir):
     """sets: {set_key: [(role, path), ...]}
     key_to_barcode: {set_key: barcode_str_or_None}
@@ -24,28 +47,18 @@ def plan_renames(sets, key_to_barcode, key_to_title, dest_dir):
       renames = [(src_path, dest_path), ...]
       notes   = [(set_key, human_reason), ...] for barcode/eBay misses.
     """
+    slugs = compute_slugs(sets, key_to_barcode, key_to_title)
     renames = []
     notes = []
-    used = set()
     for key, members in sets.items():
         is_new_stock = key.isdigit()
         barcode = key_to_barcode.get(key)
-
-        if barcode:
-            slug = slugify_title(key_to_title.get(key, ""), fallback="")
-            if not slug:
-                slug = barcode
-                notes.append((key, f"no eBay match — named by barcode {barcode}"))
-        else:
-            slug = f"NoBarcode_{key}"
+        if barcode and not slugify_title(key_to_title.get(key, ""), fallback=""):
+            notes.append((key, f"no eBay match — named by barcode {barcode}"))
+        elif not barcode:
             notes.append((key, "no barcode found — moved with placeholder name, needs manual ID"))
 
-        base, n = slug, 2
-        while slug in used:
-            slug = f"{base}_{n}"
-            n += 1
-        used.add(slug)
-
+        slug = slugs[key]
         for role, path in members:
             tagged_role = f"{role.lower()}_new" if is_new_stock else role.lower()
             dest = dest_dir / f"{slug}_{tagged_role}{path.suffix}"

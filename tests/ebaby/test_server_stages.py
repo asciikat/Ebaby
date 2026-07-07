@@ -360,3 +360,99 @@ def test_listing_txt_totals_only_the_ten_percent_prices(mock_token, mock_fetch, 
     # used 25*0.9->22.99 (disc A) + new 12*0.9->10.99 (disc B) = 33.98
     assert "TOTAL TAKE" in content
     assert "$33.98" in content
+
+
+def _seed_edit_batch(client, d):
+    """A 'crop'-stage batch with one used disc (wrong eBay title) whose renamed
+    + cropped photos and quads exist on disk, ready for a title/edit."""
+    state = batch.read_state(d)
+    state["stage"] = "crop"
+    state["barcodes"] = {"a": "9327478001218"}
+    state["ebay_rows"] = [{
+        "Barcode": "9327478001218", "Image Set Name": "Intruder_Dvd_2009",
+        "Title": "Intruder (DVD, 2009)", "Condition": "Used",
+        "Lowest Price (AUD)": 14.95, "Your Price (AUD)": 12.99, "Stock": "used",
+    }]
+    state["quads"] = {
+        "Intruder_Dvd_2009_front.png": [[0, 0], [1, 0], [1, 1], [0, 1]],
+        "Intruder_Dvd_2009_back.png": [[0, 0], [1, 0], [1, 1], [0, 1]],
+        "Intruder_Dvd_2009_inside.png": [[0, 0], [1, 0], [1, 1], [0, 1]],
+    }
+    batch.write_state(d, state)
+    for role in ("front", "back", "inside"):
+        (d / "4_renamed").mkdir(parents=True, exist_ok=True)
+        (d / "5_cropped").mkdir(parents=True, exist_ok=True)
+        (d / "4_renamed" / f"Intruder_Dvd_2009_{role}.png").write_bytes(b"png")
+        (d / "5_cropped" / f"Intruder_Dvd_2009_{role}.jpg").write_bytes(b"jpg")
+    return d
+
+
+def test_title_edit_reslugs_renames_photos_and_rewrites_files(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    resp = client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "One Step Beyond", "price": "9.99"})
+    assert resp.status_code == 200
+    row = resp.json()["rows"][0]
+    assert row["Title"] == "One Step Beyond"
+    assert row["Image Set Name"] == "One_Step_Beyond"
+    assert row["Your Price (AUD)"] == 9.99
+    # photos renamed in BOTH stage folders, old names gone
+    for role in ("front", "back", "inside"):
+        assert (d / "4_renamed" / f"One_Step_Beyond_{role}.png").is_file()
+        assert (d / "5_cropped" / f"One_Step_Beyond_{role}.jpg").is_file()
+        assert not (d / "4_renamed" / f"Intruder_Dvd_2009_{role}.png").exists()
+    # quads remapped to the new filenames
+    quads = batch.read_state(d)["quads"]
+    assert "One_Step_Beyond_front.png" in quads
+    assert "Intruder_Dvd_2009_front.png" not in quads
+    # CSV + listing rewritten with the corrected title
+    csv_text = (d / "Ebay_Details.csv").read_text(encoding="utf-8-sig")
+    assert "One Step Beyond" in csv_text and "Intruder" not in csv_text
+    assert "One Step Beyond" in (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
+
+
+def test_title_edit_price_only_keeps_the_slug_and_files(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    # same title (slug unchanged) — only the price moves; files must NOT churn
+    resp = client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "Intruder (DVD, 2009)", "price": "5"})
+    assert resp.status_code == 200
+    assert resp.json()["rows"][0]["Your Price (AUD)"] == 5.0
+    assert (d / "4_renamed" / "Intruder_Dvd_2009_front.png").is_file()  # untouched
+
+
+def test_title_edit_rejects_empty_title_and_bad_price(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    assert client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "   "}).status_code == 422
+    assert client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "Fine", "price": "cheap"}).status_code == 422
+    # nothing should have been renamed on a rejected edit
+    assert (d / "4_renamed" / "Intruder_Dvd_2009_front.png").is_file()
+
+
+def test_title_edit_unknown_disc_is_404(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    assert client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Nope", "title": "Whatever"}).status_code == 404
+
+
+def test_title_edit_dedupes_against_another_disc(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    state = batch.read_state(d)
+    # a second disc already occupies the slug we're about to collide with
+    state["ebay_rows"].append({
+        "Barcode": "111", "Image Set Name": "One_Step_Beyond",
+        "Title": "One Step Beyond", "Condition": "Used",
+        "Lowest Price (AUD)": 8.0, "Your Price (AUD)": 6.99, "Stock": "used"})
+    batch.write_state(d, state)
+    resp = client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "One Step Beyond"})
+    assert resp.status_code == 200
+    edited = next(r for r in resp.json()["rows"] if r["Barcode"] == "9327478001218")
+    assert edited["Image Set Name"] == "One_Step_Beyond_2"  # deduped, not clobbered
