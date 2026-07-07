@@ -25,11 +25,20 @@ NEW_CONDITIONS = "1000|1500|1750"
 USED_CONDITIONS = "3000|4000|5000|6000"
 
 CSV_HEADERS = [
-    "Barcode", "Image Set Name", "Title", "Region Code", "Genre", "Type",
-    "Season", "Actor", "Studio", "Language", "Rating",
-    "Lowest Price New (AUD)", "Lowest Price Used (AUD)",
-    "Your Price New (AUD)", "Your Price Used (AUD)",
+    "Barcode", "Image Set Name", "Title", "Condition", "Region Code", "Genre",
+    "Type", "Season", "Actor", "Studio", "Language", "Rating",
+    "Lowest Price (AUD)", "Your Price (AUD)",
 ]
+
+# Columns written even when every row in the batch is blank for them — the
+# identity/pricing fields the user always wants a slot for. Everything else
+# in CSV_HEADERS is metadata eBay sometimes doesn't return (Region Code,
+# Season, etc.); a column that's blank on EVERY row in this batch is dropped
+# so the sheet isn't full of dead space.
+_ALWAYS_KEPT_HEADERS = {
+    "Barcode", "Image Set Name", "Title", "Condition",
+    "Lowest Price (AUD)", "Your Price (AUD)",
+}
 
 # Undercut the cheapest comparable DELIVERED price by this much, so the listing
 # sits at the top of the buyer's price-sorted results without giving away
@@ -235,10 +244,12 @@ def fetch_listing_row(barcode, token, marketplace=None):
         "Studio": aspects.get("studio", ""),
         "Language": aspects.get("language", ""),
         "Rating": aspects.get("rating", aspects.get("movie/tv title", "")),
-        "Lowest Price New (AUD)": round(lowest_new, 2) if lowest_new is not None else "",
-        "Lowest Price Used (AUD)": round(lowest_used, 2) if lowest_used is not None else "",
-        "Your Price New (AUD)": _undercut(lowest_new),
-        "Your Price Used (AUD)": _undercut(lowest_used),
+        # not real CSV columns (extrasaction="ignore" drops them on write) —
+        # the caller doesn't yet know if THIS barcode is the new or used copy,
+        # so both lowest prices are carried until server.py picks the one
+        # that matches how the disc was actually uploaded.
+        "_lowest_new": round(lowest_new, 2) if lowest_new is not None else None,
+        "_lowest_used": round(lowest_used, 2) if lowest_used is not None else None,
     }
 
 
@@ -254,13 +265,21 @@ def fetch_all(barcodes, token, delay=0.5):
     return rows
 
 
+def _prune_blank_columns(rows):
+    """CSV_HEADERS minus any optional column that's blank on EVERY row in
+    this batch (e.g. a run with no TV box sets never has a Season value)."""
+    return [h for h in CSV_HEADERS if h in _ALWAYS_KEPT_HEADERS
+            or any(row.get(h, "") not in ("", None) for row in rows)]
+
+
 def write_csv(rows, out_path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    headers = _prune_blank_columns(rows)
     # utf-8-sig: without the BOM, Excel renders accented titles as mojibake
     with open(out_path, mode="w", newline="", encoding="utf-8-sig") as f:
-        # extrasaction="ignore": rows carry an internal "Stock" tag that isn't
-        # a CSV column — drop it instead of raising.
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS, extrasaction="ignore")
+        # extrasaction="ignore": rows carry internal keys (Stock, _lowest_*)
+        # that aren't CSV columns — drop them instead of raising.
+        writer = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)

@@ -264,15 +264,13 @@ def _windows_path(p):
 
 
 def _your_price(row):
-    """The one suggested (10%-under) price for a row — whichever condition
-    survived the relevant-only blanking — as a float, or 0.0 if none."""
-    for k in ("Your Price New (AUD)", "Your Price Used (AUD)"):
-        v = row.get(k, "")
-        if v != "" and v is not None:
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                return 0.0
+    """The row's suggested (10%-under) price as a float, or 0.0 if none."""
+    v = row.get("Your Price (AUD)", "")
+    if v != "" and v is not None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
     return 0.0
 
 
@@ -292,20 +290,15 @@ def _write_listing_txt(rows, out_path):
     for i, row in enumerate(rows, 1):
         lines.append(f"--- SCORE #{i} " + "-" * 36)
         lines.append(f"Barcode: {row.get('Barcode', '?')}")
-        stock = row.get("Stock", "")
         for k, v in row.items():
-            if k in ("Barcode", "Stock") or k.startswith("Your Price"):
+            if k in ("Barcode", "Stock", "Your Price (AUD)") or k.startswith("_"):
                 continue
             if v != "" and v is not None:
                 lines.append(f"  {k}: {v}")
-        # only the relevant condition's Your Price survives (the other was
-        # blanked upstream), so show the one figure the user actually lists at
-        your_new = row.get("Your Price New (AUD)", "")
-        your_used = row.get("Your Price Used (AUD)", "")
-        if your_new != "":
-            lines.append(f"  >> YOUR MOVE — list NEW at  ${your_new}  (10% under the lowest, delivered)")
-        if your_used != "":
-            lines.append(f"  >> YOUR MOVE — list USED at ${your_used}  (10% under the lowest, delivered)")
+        your_price = row.get("Your Price (AUD)", "")
+        if your_price != "":
+            condition = row.get("Condition", "").upper() or "IT"
+            lines.append(f"  >> YOUR MOVE — list {condition} at ${your_price}  (10% under the lowest, delivered)")
         lines.append("")
     total = sum(_your_price(row) for row in rows)
     lines += [
@@ -334,16 +327,19 @@ def ebay_run(name: str):
         warning = f"eBay lookup skipped: {e}"
         rows = [{"Barcode": b} for b in barcodes.values()]
 
-    # Tag each row new/used and drop the OTHER condition's prices — the user is
-    # selling this disc as one or the other, so the new-copy price is just
-    # noise when they're listing a used one (and vice versa). rows come back in
-    # barcodes-dict order; a barcode sold in BOTH zones keeps its own label.
+    # Collapse to the ONE condition the disc is actually sold as — the user is
+    # selling this disc as new OR used, so the other copy's price is just
+    # noise. rows come back in barcodes-dict order; a barcode sold in BOTH
+    # zones keeps its own label.
     for (key, _bc), row in zip(barcodes.items(), rows):
         stock = "new" if key.isdigit() else "used"
         row["Stock"] = stock
-        drop = "Used" if stock == "new" else "New"
-        row[f"Lowest Price {drop} (AUD)"] = ""
-        row[f"Your Price {drop} (AUD)"] = ""
+        row["Condition"] = "New" if stock == "new" else "Used"
+        lowest = row.pop("_lowest_new" if stock == "new" else "_lowest_used", None)
+        row.pop("_lowest_new", None)
+        row.pop("_lowest_used", None)
+        row["Lowest Price (AUD)"] = lowest if lowest is not None else ""
+        row["Your Price (AUD)"] = ebay._undercut(lowest)
 
     try:
         ebay.write_csv(rows, d / "Ebay_Details.csv")
@@ -361,6 +357,11 @@ def ebay_run(name: str):
     plan, notes = rename_title.plan_renames(sets, state.get("barcodes", {}),
                                              key_to_title, d / "4_renamed")
     rename_title.apply_renames(plan)
+    # the rename above MOVES every file out of 2_color, so it's always empty
+    # afterward — an empty leftover directory with no further purpose.
+    color_dir = d / "2_color"
+    if color_dir.is_dir() and not any(color_dir.iterdir()):
+        color_dir.rmdir()
     state["rename_notes"] = notes
     # persisted so a page refresh can rebuild the results screen (resume)
     state["ebay_rows"] = rows

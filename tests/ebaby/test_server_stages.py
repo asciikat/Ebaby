@@ -195,6 +195,8 @@ def test_ebay_run_without_creds_still_advances_with_barcode_names(mock_token, cl
     assert batch.read_state(d)["stage"] == "crop"
     # fell back to barcode-digit naming, file still moved to 4_renamed
     assert (d / "4_renamed/400638133393_front.png").exists()
+    # rename empties 2_color — the now-dead directory must not be left behind
+    assert not (d / "2_color").exists()
 
 
 def test_serve_file_returns_batch_image_and_404s_outside(client, tmp_path):
@@ -300,22 +302,23 @@ def test_color_run_shares_one_white_balance_across_a_set(mock_cc, client, tmp_pa
 @patch("ebaby.server.ebay.fetch_all")
 @patch("ebaby.server.ebay.get_token", return_value="tok")
 def test_ebay_run_keeps_only_the_relevant_condition_price(mock_token, mock_fetch, client, tmp_path):
-    """A disc uploaded to the USED zone (letter key) must not carry the
-    new-copy price around — the user asked to only see the relevant one."""
+    """A disc uploaded to the USED zone (letter key) must collapse to ONE
+    Condition/price pair — the user asked to only see the relevant one, with
+    no dead New-condition columns left blank."""
     d = _make_batch_at_stage(client, tmp_path, "ebay")
     state = batch.read_state(d)
     state["barcodes"] = {"a": "400638133393"}          # letter key => USED
     batch.write_state(d, state)
     mock_fetch.return_value = [{
         "Barcode": "400638133393", "Image Set Name": "Matrix", "Title": "The Matrix",
-        "Lowest Price New (AUD)": 40.0, "Lowest Price Used (AUD)": 25.0,
-        "Your Price New (AUD)": 35.99, "Your Price Used (AUD)": 22.5,
+        "_lowest_new": 40.0, "_lowest_used": 25.0,
     }]
     client.post("/api/batches/run1/ebay/run")
     row = batch.read_state(d)["ebay_rows"][0]
     assert row["Stock"] == "used"
-    assert row["Lowest Price Used (AUD)"] == 25.0 and row["Your Price Used (AUD)"] == 22.5
-    assert row["Lowest Price New (AUD)"] == "" and row["Your Price New (AUD)"] == ""
+    assert row["Condition"] == "Used"
+    assert row["Lowest Price (AUD)"] == 25.0
+    assert row["Your Price (AUD)"] == 22.99   # 25 * 0.9 = 22.50 -> charm .99
     txt = (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
     assert "list USED at" in txt and "list NEW" not in txt
 
@@ -331,15 +334,11 @@ def test_listing_txt_totals_only_the_ten_percent_prices(mock_token, mock_fetch, 
     state["barcodes"] = {"a": "111", "2": "222"}   # 'a' => used, '2' => new
     batch.write_state(d, state)
     mock_fetch.return_value = [
-        {"Barcode": "111", "Title": "A", "Lowest Price Used (AUD)": 25.0,
-         "Your Price Used (AUD)": 22.99, "Lowest Price New (AUD)": 40.0,
-         "Your Price New (AUD)": 35.99},
-        {"Barcode": "222", "Title": "B", "Lowest Price New (AUD)": 12.0,
-         "Your Price New (AUD)": 9.99, "Lowest Price Used (AUD)": 7.0,
-         "Your Price Used (AUD)": 5.99},
+        {"Barcode": "111", "Title": "A", "_lowest_used": 25.0, "_lowest_new": 40.0},
+        {"Barcode": "222", "Title": "B", "_lowest_new": 12.0, "_lowest_used": 7.0},
     ]
     client.post("/api/batches/run1/ebay/run")
     content = (d / "Ebaby Listings.txt").read_text(encoding="utf-8")
-    # used 22.99 (disc A) + new 9.99 (disc B) = 32.98 — the relevant ones only
+    # used 25*0.9->22.99 (disc A) + new 12*0.9->10.99 (disc B) = 33.98
     assert "TOTAL TAKE" in content
-    assert "$32.98" in content
+    assert "$33.98" in content

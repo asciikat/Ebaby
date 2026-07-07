@@ -81,11 +81,10 @@ def test_fetch_listing_row_prefers_new_price_and_specifics(mock_get):
     assert row["Title"] == "Canonical Title"
     assert row["Image Set Name"] == "Canonical_Title"
     assert row["Genre"] == "Horror"
-    assert row["Lowest Price New (AUD)"] == 10.00
-    assert row["Lowest Price Used (AUD)"] == 5.00
-    # competitive undercut = 10% off the cheapest comp, charm-rounded
-    assert row["Your Price New (AUD)"] == 8.99    # 10.00 -> 9.00 -> .99
-    assert row["Your Price Used (AUD)"] == 4.99   # 5.00 -> 4.50 -> .99
+    # both conditions' lowest prices are carried internally — server.py picks
+    # the one that matches how the disc was actually uploaded
+    assert row["_lowest_new"] == 10.00
+    assert row["_lowest_used"] == 5.00
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -112,7 +111,7 @@ def test_lowest_price_includes_postage(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price Used (AUD)"] == 12.00
+    assert row["_lowest_used"] == 12.00
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -132,7 +131,7 @@ def test_no_postage_listing_ignored_when_others_quote_postage(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price Used (AUD)"] == 13.00
+    assert row["_lowest_used"] == 13.00
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -166,22 +165,45 @@ def test_cheapest_of_multiple_postage_options_is_used(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price New (AUD)"] == 12.50
+    assert row["_lowest_new"] == 12.50
 
 
 def test_write_csv_matches_the_required_columns(tmp_path):
     rows = [{"Barcode": "123", "Image Set Name": "Movie", "Title": "The Movie",
-             "Region Code": "4", "Genre": "Drama", "Type": "", "Season": "",
-             "Actor": "", "Studio": "", "Language": "", "Rating": "",
-             "Lowest Price New (AUD)": 12.5, "Lowest Price Used (AUD)": "",
-             "Your Price New (AUD)": 11.25, "Your Price Used (AUD)": ""}]
+             "Condition": "Used", "Region Code": "4", "Genre": "Drama", "Type": "",
+             "Season": "", "Actor": "", "Studio": "", "Language": "", "Rating": "",
+             "Lowest Price (AUD)": 12.5, "Your Price (AUD)": 11.25}]
     out = tmp_path / "Ebay_Details.csv"
     ebay.write_csv(rows, out)
     header = out.read_text(encoding="utf-8-sig").splitlines()[0]
-    assert header == ("Barcode,Image Set Name,Title,Region Code,Genre,Type,"
-                      "Season,Actor,Studio,Language,Rating,"
-                      "Lowest Price New (AUD),Lowest Price Used (AUD),"
-                      "Your Price New (AUD),Your Price Used (AUD)")
+    # Type/Season/Actor/Studio/Language/Rating are blank on this one row, so
+    # every one of those gets pruned — only Region Code+Genre have data
+    assert header == ("Barcode,Image Set Name,Title,Condition,Region Code,Genre,"
+                      "Lowest Price (AUD),Your Price (AUD)")
+
+
+def test_write_csv_keeps_a_metadata_column_if_any_row_has_it(tmp_path):
+    rows = [
+        {"Barcode": "1", "Image Set Name": "A", "Title": "A", "Condition": "Used",
+         "Season": "", "Lowest Price (AUD)": 10, "Your Price (AUD)": 8.99},
+        {"Barcode": "2", "Image Set Name": "B", "Title": "B", "Condition": "New",
+         "Season": "3", "Lowest Price (AUD)": 20, "Your Price (AUD)": 17.99},
+    ]
+    out = tmp_path / "Ebay_Details.csv"
+    ebay.write_csv(rows, out)
+    header = out.read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "Season" in header  # one row has it -> keep it for the whole batch
+
+
+def test_write_csv_never_drops_the_core_columns_even_if_all_blank(tmp_path):
+    rows = [{"Barcode": "", "Image Set Name": "", "Title": "", "Condition": "",
+             "Lowest Price (AUD)": "", "Your Price (AUD)": ""}]
+    out = tmp_path / "Ebay_Details.csv"
+    ebay.write_csv(rows, out)
+    header = out.read_text(encoding="utf-8-sig").splitlines()[0]
+    for core in ("Barcode", "Image Set Name", "Title", "Condition",
+                 "Lowest Price (AUD)", "Your Price (AUD)"):
+        assert core in header
 
 
 def test_undercut_is_ten_percent_off_charmed_and_blank_when_no_comp():
@@ -223,7 +245,7 @@ def test_title_search_can_beat_barcode_price(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price Used (AUD)"] == 10.00  # 8 + 2 beats 12 + 3
+    assert row["_lowest_used"] == 10.00  # 8 + 2 beats 12 + 3
     assert row["Title"] == "Some Movie"
 
 
@@ -268,7 +290,7 @@ def test_title_search_failure_keeps_barcode_prices(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price Used (AUD)"] == 15.00  # barcode pass survives
+    assert row["_lowest_used"] == 15.00  # barcode pass survives
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
@@ -296,7 +318,7 @@ def test_title_search_absurdly_low_match_is_rejected(mock_get):
         raise AssertionError(f"unexpected url {url}")
     mock_get.side_effect = side_effect
     row = ebay.fetch_listing_row("5021456189472", token="tok")
-    assert row["Lowest Price Used (AUD)"] == 30.00  # $1.50 match rejected
+    assert row["_lowest_used"] == 30.00  # $1.50 match rejected
 
 
 def test_guarded_min_accepts_title_price_when_no_barcode_price():

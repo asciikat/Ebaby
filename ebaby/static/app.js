@@ -283,13 +283,11 @@ function renderFenceCards(rows) {
   const wrap = $("#fence-cards");
   wrap.innerHTML = "";
   for (const row of rows) {
-    // one disc is sold as new OR used — show only that condition's numbers
-    const isNew = row.Stock === "new";
-    const label = isNew ? "NEW" : "USED";
-    const found = priceTag(isNew ? row["Lowest Price New (AUD)"]
-                                 : row["Lowest Price Used (AUD)"]);
-    const mine = priceTag(isNew ? row["Your Price New (AUD)"]
-                                : row["Your Price Used (AUD)"]);
+    // one disc is sold as new OR used — the row only ever carries that
+    // condition's numbers (collapsed server-side)
+    const label = (row.Condition || (row.Stock === "new" ? "New" : "Used")).toUpperCase();
+    const found = priceTag(row["Lowest Price (AUD)"]);
+    const mine = priceTag(row["Your Price (AUD)"]);
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
@@ -309,7 +307,7 @@ function renderFenceCards(rows) {
   // overall total = sum of the 10%-under prices only (what you'd list the
   // whole pile at), not the lowest-comp prices
   const total = rows.reduce((sum, row) => {
-    const v = parseFloat(row["Your Price New (AUD)"]) || parseFloat(row["Your Price Used (AUD)"]) || 0;
+    const v = parseFloat(row["Your Price (AUD)"]);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
   const totalRow = document.createElement("div");
