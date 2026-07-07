@@ -71,7 +71,11 @@ def _normalize_barcode(value, sym_type):
 
 def decode_barcodes(image, product_only=True):
     """Unique digit strings in first-seen order, normalized. Stops as soon as
-    a product barcode is found."""
+    a product barcode is found. A None image (unreadable/corrupt crop) is a
+    clean miss, not a crash — the caller loops over a whole batch and one bad
+    file must not abort the rest."""
+    if image is None:
+        return []
     seen = []
     for view in _candidates(image):
         for sym in pyzbar.decode(view):

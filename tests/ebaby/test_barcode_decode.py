@@ -28,6 +28,13 @@ def test_decode_barcodes_returns_empty_list_on_blank_image():
     assert bd.decode_barcodes(blank) == []
 
 
+def test_decode_barcodes_treats_none_as_a_miss_not_a_crash():
+    """An unreadable/corrupt crop reaches decode_barcodes as None; it must be
+    a clean miss so one bad file doesn't abort the whole barcode batch (which
+    would lose every result decoded before it)."""
+    assert bd.decode_barcodes(None) == []
+
+
 def test_normalize_barcode_strips_leading_zero_for_upca_via_ean13():
     assert bd._normalize_barcode("0883316276402", "EAN13") == "883316276402"
 

@@ -128,12 +128,30 @@ def test_crop_manual_degenerate_quad_is_422(client, tmp_path):
 @patch("ebaby.server.barcode_locate.locate_and_crop", return_value=True)
 def test_barcode_run_records_digits_and_advances(mock_locate, mock_decode, client, tmp_path):
     d = _make_batch_at_stage(client, tmp_path, "barcode")
-    (d / "2_color/a_back.png").write_bytes(b"x")
+    (d / "2_color").mkdir(parents=True, exist_ok=True)
+    # a *readable* back photo: decode only runs when cv2.imread succeeds, so a
+    # valid image is what actually exercises the record-and-advance path
+    cv2.imwrite(str(d / "2_color/a_back.png"), np.full((20, 20, 3), 255, dtype=np.uint8))
     resp = client.post("/api/batches/run1/barcode/run")
     assert resp.status_code == 200
     body = resp.json()
     assert body["results"]["a"] == "400638133393"
     assert batch.read_state(d)["stage"] == "ebay"
+
+
+@patch("ebaby.server.barcode_locate.locate_and_crop", return_value=True)
+def test_barcode_run_unreadable_photo_is_a_miss_not_a_batch_crash(mock_locate, client, tmp_path):
+    """locate_and_crop can report success while both the crop and the back
+    photo are unreadable (cv2.imread -> None). That one item must record as a
+    miss and the batch must still advance — it used to crash the whole run and
+    lose every result. See test_barcode_decode.test_..._none_...as well."""
+    d = _make_batch_at_stage(client, tmp_path, "barcode")
+    (d / "2_color").mkdir(parents=True, exist_ok=True)
+    (d / "2_color/a_back.png").write_bytes(b"not a real png")  # imread -> None
+    resp = client.post("/api/batches/run1/barcode/run")
+    assert resp.status_code == 200
+    assert resp.json()["results"]["a"] is None      # clean miss
+    assert batch.read_state(d)["stage"] == "ebay"    # batch still advanced
 
 
 def test_barcode_manual_override_records_digits(client, tmp_path):

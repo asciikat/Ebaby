@@ -220,7 +220,11 @@ def barcode_run(name: str):
         img = cv2.imread(str(crop_path))
         if img is None:
             img = cv2.imread(str(back_photo))
-        codes = barcode_decode.decode_barcodes(img) if (located or img is not None) else []
+        # `located` is deliberately NOT part of this guard: locate_and_crop can
+        # report success while the crop it wrote is unreadable, and if the back
+        # photo is unreadable too, img is None — decoding None must be skipped
+        # (decode_barcodes also guards, but keep the crash off the hot path).
+        codes = barcode_decode.decode_barcodes(img) if img is not None else []
         results[key] = codes[0] if codes else None
         if crop_path.is_file():
             crops[key] = crop_path.name  # fix screen shows the actual barcode
