@@ -3,6 +3,8 @@ current batch's folder and advances state.json. No stage logic lives here —
 this file only sequences calls into ebaby.stages.* and ebaby.batch.
 """
 import re
+import shutil
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
@@ -71,6 +73,31 @@ def _stage_gate(name, *allowed):
             "error": f"batch is at stage '{state.get('stage')}', "
                      f"this step needs {' or '.join(allowed)}"})
     return d, state, None
+
+
+# accept_hustle deletes 1_originals/3_barcodes/4_renamed/2_color; crop_run,
+# crop_manual and title_edit all read or write files in that same set. All
+# four routes run on FastAPI's thread pool, so two of them can genuinely
+# overlap on the same batch (e.g. a re-chop still in flight when Accept
+# Hustle is clicked) — this lock serializes them per batch name, and the
+# "accepted" flag lets the other three refuse cleanly once cleanup has run,
+# instead of hitting missing files mid-operation.
+_BATCH_LOCKS: dict = {}
+_BATCH_LOCKS_GUARD = threading.Lock()
+
+
+def _batch_lock(name: str) -> threading.Lock:
+    with _BATCH_LOCKS_GUARD:
+        return _BATCH_LOCKS.setdefault(name, threading.Lock())
+
+
+def _refuse_if_accepted(state):
+    if state.get("accepted"):
+        return JSONResponse(status_code=409, content={
+            "error": "This batch was finalized with Accept Hustle — its "
+                     "working files are gone, only the cropped photos and "
+                     "eBay files remain."})
+    return None
 
 
 @app.post("/api/batches/{name}/upload/{zone}")
@@ -450,60 +477,65 @@ def title_edit(name: str, req: TitleEditRequest):
     d, state, err = _stage_gate(name)        # any batch that has eBay rows
     if err:
         return err
-    rows = state.get("ebay_rows") or []
-    row = next((r for r in rows if r.get("Image Set Name") == req.image_set_name), None)
-    if row is None:
-        return JSONResponse(status_code=404, content={
-            "error": f"no disc named '{req.image_set_name}' in this batch"})
+    with _batch_lock(name):
+        state = batch.read_state(d)          # re-read under the lock
+        refused = _refuse_if_accepted(state)
+        if refused:
+            return refused
+        rows = state.get("ebay_rows") or []
+        row = next((r for r in rows if r.get("Image Set Name") == req.image_set_name), None)
+        if row is None:
+            return JSONResponse(status_code=404, content={
+                "error": f"no disc named '{req.image_set_name}' in this batch"})
 
-    new_title = (req.title or "").strip()
-    if not new_title:
-        return JSONResponse(status_code=422, content={"error": "title can't be empty"})
+        new_title = (req.title or "").strip()
+        if not new_title:
+            return JSONResponse(status_code=422, content={"error": "title can't be empty"})
 
-    new_price = None
-    if req.price is not None:
-        new_price, price_err = _parse_price(req.price)
-        if price_err:
-            return JSONResponse(status_code=422, content={"error": price_err})
+        new_price = None
+        if req.price is not None:
+            new_price, price_err = _parse_price(req.price)
+            if price_err:
+                return JSONResponse(status_code=422, content={"error": price_err})
 
-    old_slug = req.image_set_name
-    others = {r.get("Image Set Name") for r in rows if r is not row}
-    new_slug = naming_utils.slugify_title(new_title, fallback=(row.get("Barcode") or old_slug))
-    base, n = new_slug, 2
-    while new_slug in others:                 # keep every disc's slug unique
-        new_slug = f"{base}_{n}"
-        n += 1
+        old_slug = req.image_set_name
+        others = {r.get("Image Set Name") for r in rows if r is not row}
+        new_slug = naming_utils.slugify_title(new_title, fallback=(row.get("Barcode") or old_slug))
+        base, n = new_slug, 2
+        while new_slug in others:             # keep every disc's slug unique
+            new_slug = f"{base}_{n}"
+            n += 1
 
-    if new_slug != old_slug:
+        if new_slug != old_slug:
+            try:
+                quad_map = _rename_disc_files(d, old_slug, new_slug)
+            except OSError as e:
+                return JSONResponse(status_code=422, content={
+                    "error": f"couldn't rename the photos ({e}); close them and retry"})
+            quads = state.get("quads") or {}
+            state["quads"] = {quad_map.get(k, k): v for k, v in quads.items()}
+
+        row["Title"] = new_title
+        row["Image Set Name"] = new_slug
+        if new_price is not None:
+            row["Your Price (AUD)"] = new_price
+
+        # keep state["titles"] in step so a later re-run/rename stays consistent
+        barcode = row.get("Barcode")
+        if barcode:
+            for k, v in (state.get("barcodes") or {}).items():
+                if v == barcode:
+                    state.setdefault("titles", {})[k] = new_title
+
+        warning = None
         try:
-            quad_map = _rename_disc_files(d, old_slug, new_slug)
+            ebay.write_csv(rows, d / "Ebay_Details.csv")
+            _write_listing_txt(rows, d / "Ebaby Listings.txt")
         except OSError as e:
-            return JSONResponse(status_code=422, content={
-                "error": f"couldn't rename the photos ({e}); close them and retry"})
-        quads = state.get("quads") or {}
-        state["quads"] = {quad_map.get(k, k): v for k, v in quads.items()}
-
-    row["Title"] = new_title
-    row["Image Set Name"] = new_slug
-    if new_price is not None:
-        row["Your Price (AUD)"] = new_price
-
-    # keep state["titles"] in step so a later re-run/rename stays consistent
-    barcode = row.get("Barcode")
-    if barcode:
-        for k, v in (state.get("barcodes") or {}).items():
-            if v == barcode:
-                state.setdefault("titles", {})[k] = new_title
-
-    warning = None
-    try:
-        ebay.write_csv(rows, d / "Ebay_Details.csv")
-        _write_listing_txt(rows, d / "Ebaby Listings.txt")
-    except OSError as e:
-        warning = f"Couldn't rewrite the listing files ({e}); close them and retry."
-    state["ebay_rows"] = rows
-    batch.write_state(d, state)
-    return {"rows": rows, "quads": state.get("quads", {}), "warning": warning}
+            warning = f"Couldn't rewrite the listing files ({e}); close them and retry."
+        state["ebay_rows"] = rows
+        batch.write_state(d, state)
+        return {"rows": rows, "quads": state.get("quads", {}), "warning": warning}
 
 
 @app.post("/api/batches/{name}/crop/run")
@@ -513,31 +545,78 @@ def crop_run(name: str):
     d, state, err = _stage_gate(name, "crop", "done")
     if err:
         return err
-    quads = {}
-    srcs = sorted((d / "4_renamed").glob("*.png"))
-    _set_progress(d, state, "crop", 0, len(srcs))
-    for i, src in enumerate(srcs, 1):
-        bgr = cv2.imread(str(src))
-        if bgr is None:
-            continue
-        detected = crop.detect_crop_box(bgr)
-        if detected is None:
-            h, w = bgr.shape[:2]
-            quad = [[0, 0], [w, 0], [w, h], [0, h]]
-        else:
-            quad, _coverage = detected
-            quad = quad.tolist()
-        out_bgr = crop.crop_and_compose(bgr, quad)
-        out_path = d / "5_cropped" / f"{src.stem}.jpg"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out_path), out_bgr)
-        quads[src.name] = quad
-        _set_progress(d, state, "crop", i, len(srcs))
-    state["quads"] = quads  # persisted for refresh-resume of the chop shop
-    batch.write_state(d, state)
-    if state.get("stage") == "crop":
-        batch.advance_stage(d, "crop", "done")
-    return {"quads": quads}
+    with _batch_lock(name):
+        state = batch.read_state(d)          # re-read under the lock
+        refused = _refuse_if_accepted(state)
+        if refused:
+            return refused
+        quads = {}
+        srcs = sorted((d / "4_renamed").glob("*.png"))
+        _set_progress(d, state, "crop", 0, len(srcs))
+        for i, src in enumerate(srcs, 1):
+            bgr = cv2.imread(str(src))
+            if bgr is None:
+                continue
+            detected = crop.detect_crop_box(bgr)
+            if detected is None:
+                h, w = bgr.shape[:2]
+                quad = [[0, 0], [w, 0], [w, h], [0, h]]
+            else:
+                quad, _coverage = detected
+                quad = quad.tolist()
+            out_bgr = crop.crop_and_compose(bgr, quad)
+            out_path = d / "5_cropped" / f"{src.stem}.jpg"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(out_path), out_bgr)
+            quads[src.name] = quad
+            _set_progress(d, state, "crop", i, len(srcs))
+        state["quads"] = quads  # persisted for refresh-resume of the chop shop
+        batch.write_state(d, state)
+        if state.get("stage") == "crop":
+            batch.advance_stage(d, "crop", "done")
+        return {"quads": quads}
+
+
+# "Accept Hustle?" deletes everything except the final listing photos and
+# paperwork. Safe: 1_originals is always a COPY the upload step made — the
+# user's actual source files live elsewhere on their disk — so this can never
+# destroy anything irreplaceable, only this batch's working copies.
+_ACCEPT_REMOVE_DIRS = ("1_originals", "3_barcodes", "4_renamed", "2_color")
+
+
+_ACCEPT_KEPT = ["5_cropped", "Ebay_Details.csv", "Ebaby Listings.txt", "state.json"]
+
+
+@app.post("/api/batches/{name}/accept")
+def accept_hustle(name: str):
+    d, state, err = _stage_gate(name, "done")
+    if err:
+        return err
+    with _batch_lock(name):
+        state = batch.read_state(d)          # re-read under the lock
+        # NOT gated on state["accepted"] — a call that only partially
+        # succeeded (one locked file) must be re-triable, and re-running is
+        # naturally idempotent: the is_dir() check below just skips whatever
+        # a previous call already removed.
+        removed, errors = [], []
+        for sub in _ACCEPT_REMOVE_DIRS:
+            p = d / sub
+            if p.is_dir():
+                try:
+                    shutil.rmtree(p)
+                    removed.append(sub)
+                except OSError as e:
+                    errors.append(f"{sub}: {e}")
+        # Set even on partial failure: the user has declared this batch
+        # finalized, so crop/title routes should refuse from now on — a retry
+        # of THIS route is still how the remaining folders get cleaned up.
+        state["accepted"] = True
+        batch.write_state(d, state)
+        result = {"removed": removed, "kept": _ACCEPT_KEPT}
+        if errors:
+            result["error"] = ("Couldn't fully clean up: " + "; ".join(errors) +
+                                " — close any program using those files and try again.")
+        return result
 
 
 @app.get("/api/files/{name}/{stage}/{filename}")
@@ -561,23 +640,28 @@ def crop_manual(name: str, req: CropManualRequest):
     d, _state, err = _stage_gate(name)
     if err:
         return err
-    src = d / "4_renamed" / Path(req.filename).name
-    bgr = cv2.imread(str(src))
-    if bgr is None:
-        return JSONResponse(status_code=404,
-                            content={"error": f"no such photo: {req.filename}"})
-    try:
-        out_bgr = crop.crop_and_compose(bgr, req.quad)
-    except (ValueError, cv2.error) as e:
-        # e.g. all four corners dragged into a heap — degenerate warp
-        return JSONResponse(status_code=422, content={
-            "error": f"that crop box is too small or twisted ({e})"})
-    out_path = d / "5_cropped" / f"{src.stem}.jpg"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), out_bgr)
-    _state.setdefault("quads", {})[src.name] = req.quad
-    batch.write_state(d, _state)
-    return {"recropped": req.filename}
+    with _batch_lock(name):
+        _state = batch.read_state(d)         # re-read under the lock
+        refused = _refuse_if_accepted(_state)
+        if refused:
+            return refused
+        src = d / "4_renamed" / Path(req.filename).name
+        bgr = cv2.imread(str(src))
+        if bgr is None:
+            return JSONResponse(status_code=404,
+                                content={"error": f"no such photo: {req.filename}"})
+        try:
+            out_bgr = crop.crop_and_compose(bgr, req.quad)
+        except (ValueError, cv2.error) as e:
+            # e.g. all four corners dragged into a heap — degenerate warp
+            return JSONResponse(status_code=422, content={
+                "error": f"that crop box is too small or twisted ({e})"})
+        out_path = d / "5_cropped" / f"{src.stem}.jpg"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_path), out_bgr)
+        _state.setdefault("quads", {})[src.name] = req.quad
+        batch.write_state(d, _state)
+        return {"recropped": req.filename}
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="static")

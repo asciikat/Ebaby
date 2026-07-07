@@ -1,4 +1,5 @@
 import io
+import shutil
 from unittest.mock import patch
 
 import cv2
@@ -456,3 +457,138 @@ def test_title_edit_dedupes_against_another_disc(client, tmp_path):
     assert resp.status_code == 200
     edited = next(r for r in resp.json()["rows"] if r["Barcode"] == "9327478001218")
     assert edited["Image Set Name"] == "One_Step_Beyond_2"  # deduped, not clobbered
+
+
+def _seed_done_batch_with_all_folders(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "done")
+    for sub in ("1_originals/used", "3_barcodes", "4_renamed", "2_color", "5_cropped"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    (d / "1_originals/used/a_front.dng").write_bytes(b"raw")
+    (d / "3_barcodes/a_back_barcode.png").write_bytes(b"crop")
+    (d / "4_renamed/Movie_front.png").write_bytes(b"png")
+    (d / "5_cropped/Movie_front.jpg").write_bytes(b"jpg")
+    (d / "Ebay_Details.csv").write_text("Barcode\n123\n", encoding="utf-8")
+    (d / "Ebaby Listings.txt").write_text("stuff", encoding="utf-8")
+    return d
+
+
+def test_accept_deletes_intermediates_keeps_cropped_and_paperwork(client, tmp_path):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    resp = client.post("/api/batches/run1/accept")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body["removed"]) == {"1_originals", "3_barcodes", "4_renamed", "2_color"}
+    assert not (d / "1_originals").exists()
+    assert not (d / "3_barcodes").exists()
+    assert not (d / "4_renamed").exists()
+    assert not (d / "2_color").exists()
+    # the stuff we're supposed to keep survives untouched
+    assert (d / "5_cropped/Movie_front.jpg").is_file()
+    assert (d / "Ebay_Details.csv").is_file()
+    assert (d / "Ebaby Listings.txt").is_file()
+    assert (d / "state.json").is_file()
+
+
+def test_accept_is_idempotent_when_folders_already_gone(client, tmp_path):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    first = client.post("/api/batches/run1/accept")
+    assert first.status_code == 200
+    second = client.post("/api/batches/run1/accept")
+    assert second.status_code == 200
+    assert second.json()["removed"] == []          # nothing left to remove
+    assert (d / "5_cropped/Movie_front.jpg").is_file()  # still untouched
+
+
+def test_accept_refuses_a_batch_that_isnt_done_yet(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    (d / "1_originals/used").mkdir(parents=True, exist_ok=True)
+    (d / "1_originals/used/a_front.dng").write_bytes(b"raw")
+    resp = client.post("/api/batches/run1/accept")
+    assert resp.status_code == 409
+    assert (d / "1_originals/used/a_front.dng").is_file()  # nothing deleted
+
+
+def test_accept_404s_on_an_unknown_batch(client, tmp_path):
+    resp = client.post("/api/batches/ghost/accept")
+    assert resp.status_code == 404
+
+
+def test_accept_sets_the_accepted_flag_in_state(client, tmp_path):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    client.post("/api/batches/run1/accept")
+    assert batch.read_state(d)["accepted"] is True
+
+
+def test_accept_reports_a_locked_file_but_still_removes_the_rest(client, tmp_path, monkeypatch):
+    """A locked file (Windows AV/Explorer holding a handle) must not abort
+    cleanup of the OTHER folders, and must surface a clear error instead of
+    an unhandled 500 — a partial failure used to be silently swallowed."""
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    real_rmtree = shutil.rmtree
+    def flaky_rmtree(path, *a, **kw):
+        if "3_barcodes" in str(path):
+            raise PermissionError("Access is denied")
+        return real_rmtree(path, *a, **kw)
+    monkeypatch.setattr(server.shutil, "rmtree", flaky_rmtree)
+    resp = client.post("/api/batches/run1/accept")
+    assert resp.status_code == 200                 # not an unhandled 500
+    body = resp.json()
+    assert "3_barcodes" in body["error"]
+    assert "1_originals" in body["removed"]         # the other dirs still went
+    assert not (d / "1_originals").exists()
+    assert (d / "3_barcodes").exists()              # the locked one survives
+    assert batch.read_state(d)["accepted"] is True  # still marked finalized
+
+
+def test_accept_retry_finishes_a_partially_failed_cleanup(client, tmp_path, monkeypatch):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    real_rmtree = shutil.rmtree
+    def flaky_once(path, *a, **kw):
+        if "3_barcodes" in str(path):
+            raise PermissionError("Access is denied")
+        return real_rmtree(path, *a, **kw)
+    monkeypatch.setattr(server.shutil, "rmtree", flaky_once)
+    client.post("/api/batches/run1/accept")
+    assert (d / "3_barcodes").exists()
+    monkeypatch.setattr(server.shutil, "rmtree", real_rmtree)  # "file" is closed now
+    retry = client.post("/api/batches/run1/accept")
+    assert retry.status_code == 200
+    assert retry.json()["removed"] == ["3_barcodes"]
+    assert not (d / "3_barcodes").exists()
+
+
+def test_crop_run_refuses_once_batch_is_accepted(client, tmp_path):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    client.post("/api/batches/run1/accept")
+    resp = client.post("/api/batches/run1/crop/run")
+    assert resp.status_code == 409
+    assert "Accept Hustle" in resp.json()["error"]
+
+
+def test_crop_manual_refuses_once_batch_is_accepted(client, tmp_path):
+    d = _seed_done_batch_with_all_folders(client, tmp_path)
+    client.post("/api/batches/run1/accept")
+    resp = client.post("/api/batches/run1/crop/manual", json={
+        "filename": "Movie_front.png", "quad": [[0, 0], [1, 0], [1, 1], [0, 1]]})
+    assert resp.status_code == 409
+    assert "Accept Hustle" in resp.json()["error"]
+
+
+def test_title_edit_refuses_once_batch_is_accepted(client, tmp_path):
+    d = _make_batch_at_stage(client, tmp_path, "crop")
+    _seed_edit_batch(client, d)
+    state = batch.read_state(d)
+    state["stage"] = "done"
+    state["accepted"] = True
+    batch.write_state(d, state)
+    resp = client.post("/api/batches/run1/title/edit", json={
+        "image_set_name": "Intruder_Dvd_2009", "title": "One Step Beyond"})
+    assert resp.status_code == 409
+    assert "Accept Hustle" in resp.json()["error"]
+
+
+def test_batch_lock_returns_the_same_lock_object_for_the_same_name(tmp_path):
+    """The whole point of _batch_lock: two calls for the same batch name must
+    serialize on ONE lock, not two different ones."""
+    assert server._batch_lock("run1") is server._batch_lock("run1")
+    assert server._batch_lock("run1") is not server._batch_lock("run2")

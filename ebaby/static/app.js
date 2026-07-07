@@ -552,6 +552,43 @@ $("#btn-crop-save").addEventListener("click", async () => {
 
 $("#btn-new-job").addEventListener("click", () => location.reload());
 
+/* ---------- "ACCEPT HUSTLE?" — final cleanup, then close the app ---------- */
+
+$("#btn-accept-hustle").addEventListener("click", () => {
+  $("#accept-modal").hidden = false;
+});
+
+$("#btn-accept-no").addEventListener("click", () => {
+  $("#accept-modal").hidden = true;
+});
+
+$("#btn-accept-yes").addEventListener("click", async () => {
+  const yesBtn = $("#btn-accept-yes");
+  const noBtn = $("#btn-accept-no");
+  yesBtn.disabled = true; noBtn.disabled = true;
+  yesBtn.textContent = "CLEANING UP…";
+  try {
+    const r = await api(`/batches/${state.batchName}/accept`, { method: "POST" });
+    if (r && r.error) {
+      alert(r.error);
+      yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
+      return;
+    }
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.close_app) {
+      window.pywebview.api.close_app();
+    } else {
+      // not running inside the desktop app (e.g. a plain browser tab) —
+      // nothing left to close automatically
+      $("#accept-modal .modal-box").innerHTML =
+        `<h2 class="mission wasted">CLEANED UP</h2>` +
+        `<p class="hint">Only the cropped photos and eBay files remain. You can close this window now.</p>`;
+    }
+  } catch (err) {
+    alert(`Cleanup failed: ${err.message}`);
+    yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
+  }
+});
+
 /* ---------- 6. resume: a page refresh must never orphan a job ---------- */
 
 function ebayPanelFromState(s) {

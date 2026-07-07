@@ -83,8 +83,22 @@
       </div>
     </div>
 
-    <button id="btn-new-job" class="big-btn" style="margin-top:1.5rem">START ANOTHER JOB</button>
+    <button id="btn-accept-hustle" class="danger-btn" style="margin-top:1.5rem">ACCEPT HUSTLE?</button>
+    <button id="btn-new-job" class="big-btn" style="margin-top:.8rem">START ANOTHER JOB</button>
   </section>
+
+  <div id="accept-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <h2 class="mission">ACCEPT HUSTLE?</h2>
+      <p class="hint">Deletes the originals, barcode crops, and pre-crop
+         renames for THIS batch &mdash; keeping only the cropped listing
+         photos and the eBay CSV/listing text. Can't be undone.</p>
+      <div class="modal-actions">
+        <button id="btn-accept-yes" class="big-btn">YES</button>
+        <button id="btn-accept-no" class="ghost-btn">NO</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
 </body>

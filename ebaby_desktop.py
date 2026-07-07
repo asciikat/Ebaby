@@ -23,6 +23,18 @@ def port_open() -> bool:
         return s.connect_ex(("127.0.0.1", PORT)) == 0
 
 
+class Api:
+    """Exposed to the page as window.pywebview.api.* — lets the "Accept
+    Hustle?" button close this window itself once cleanup is done, instead
+    of leaving the user to close it by hand."""
+    def __init__(self):
+        self.window = None
+
+    def close_app(self):
+        if self.window is not None:
+            self.window.destroy()
+
+
 def main() -> int:
     try:
         import webview
@@ -44,10 +56,12 @@ def main() -> int:
             print("EBABY engine failed to start — check WSL Debian + ~/Ebabyv2")
             return 1
 
-    webview.create_window(
+    api = Api()
+    api.window = webview.create_window(
         "EBABY — PLASTIC IN. PAPER OUT.",
         f"http://127.0.0.1:{PORT}",
         width=1180, height=980, background_color="#0a0a0d",
+        js_api=api,
     )
     webview.start()
 
