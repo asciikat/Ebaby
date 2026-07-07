@@ -129,11 +129,17 @@ def _delivered_price(item):
     return price, False
 
 
-def _search_condition(query, condition_ids, headers):
+def _search_condition(query, condition_ids, headers, by_gtin=False):
     # FIXED_PRICE only: an auction sitting at $0.99 with 6 days left is not
     # a real "lowest price". deliveryCountry pins postage quotes to AU.
+    #
+    # by_gtin: barcodes must go through eBay's gtin= param (exact product-
+    # identifier match), NOT q=. q= is fuzzy text search — measured live, it
+    # ranked a bogus "Intruder (DVD, 2009)" listing above four genuine "One
+    # Step Beyond" listings for barcode 9327478001218, which then became the
+    # canonical title for the whole disc. gtin= returned only true matches.
     params = {
-        "q": query,
+        ("gtin" if by_gtin else "q"): query,
         "filter": (f"conditionIds:{{{condition_ids}}},"
                    "buyingOptions:{FIXED_PRICE},deliveryCountry:AU"),
         "sort": "price",  # eBay sorts ascending by price + postage
@@ -205,8 +211,10 @@ def fetch_listing_row(barcode, token, marketplace=None):
     headers = {"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": marketplace,
                "Content-Type": "application/json"}
 
-    lowest_new, new_item_id, new_title = _search_condition(barcode, NEW_CONDITIONS, headers)
-    lowest_used, used_item_id, used_title = _search_condition(barcode, USED_CONDITIONS, headers)
+    lowest_new, new_item_id, new_title = _search_condition(
+        barcode, NEW_CONDITIONS, headers, by_gtin=True)
+    lowest_used, used_item_id, used_title = _search_condition(
+        barcode, USED_CONDITIONS, headers, by_gtin=True)
     if lowest_new is None and lowest_used is None:
         return None
 

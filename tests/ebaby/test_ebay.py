@@ -135,6 +135,37 @@ def test_no_postage_listing_ignored_when_others_quote_postage(mock_get):
 
 
 @patch("ebaby.stages.ebay._SESSION.get")
+def test_barcode_pass_searches_by_gtin_title_pass_by_text(mock_get):
+    """Barcode lookups must use eBay's gtin= (exact product-identifier match).
+    q= is fuzzy text search — measured live, it ranked a bogus 'Intruder'
+    listing above four genuine 'One Step Beyond' listings for barcode
+    9327478001218 and the wrong title became the whole disc's name. The
+    title pass stays q= on purpose (recall for sellers who skip the barcode)."""
+    calls = []
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "item_summary/search" in url:
+            calls.append(dict(params))
+            if params.get("gtin"):  # barcode pass finds the disc
+                return _resp({"itemSummaries": [
+                    {"itemId": "B1", "title": "One Step Beyond Volume 1",
+                     "price": {"value": "14.95"},
+                     "shippingOptions": [{"shippingCost": {"value": "0.00"}}]},
+                ]})
+            return _resp({"itemSummaries": []})  # title pass: nothing cheaper
+        if "item/B1" in url:
+            return _resp({"title": "One Step Beyond Volume 1", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("9327478001218", token="tok")
+    assert row["Title"] == "One Step Beyond Volume 1"
+    barcode_calls = [c for c in calls if c.get("gtin")]
+    title_calls = [c for c in calls if c.get("q")]
+    assert len(barcode_calls) == 2                       # New + Used, both gtin
+    assert all(c["gtin"] == "9327478001218" and "q" not in c for c in barcode_calls)
+    assert title_calls and all("gtin" not in c for c in title_calls)
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
 def test_search_filters_out_auctions_and_pins_au_delivery(mock_get):
     seen = {}
     def side_effect(url, headers=None, params=None, timeout=None):
@@ -226,7 +257,7 @@ def test_title_search_can_beat_barcode_price(mock_get):
     cheaper delivered total must win. Postage rules still apply per search."""
     def side_effect(url, headers=None, params=None, timeout=None):
         if "item_summary/search" in url:
-            by_title = "Some Movie" in params["q"]
+            by_title = "Some Movie" in params.get("q", "")
             if "1000|1500|1750" in params["filter"]:
                 return _resp({"itemSummaries": []})  # nothing new anywhere
             if by_title:
@@ -254,8 +285,8 @@ def test_title_search_appends_dvd_keyword(mock_get):
     seen = []
     def side_effect(url, headers=None, params=None, timeout=None):
         if "item_summary/search" in url:
-            seen.append(params["q"])
-            if params["q"] == "5021456189472" and "3000" in params["filter"]:
+            seen.append(params.get("q") or params.get("gtin"))
+            if params.get("gtin") == "5021456189472" and "3000" in params["filter"]:
                 return _resp({"itemSummaries": [
                     {"itemId": "B1", "title": "Blade Runner",
                      "price": {"value": "9.00"},
@@ -276,7 +307,7 @@ def test_title_search_failure_keeps_barcode_prices(mock_get):
     barcode-pass prices (or, via fetch_all, every other disc's row)."""
     def side_effect(url, headers=None, params=None, timeout=None):
         if "item_summary/search" in url:
-            if "Some Movie" in params["q"]:
+            if "Some Movie" in params.get("q", ""):
                 raise requests.exceptions.ConnectionError("mid-run outage")
             if "1000|1500|1750" in params["filter"]:
                 return _resp({"itemSummaries": []})
@@ -299,7 +330,7 @@ def test_title_search_absurdly_low_match_is_rejected(mock_get):
     single disc vs boxset / generic lot) must NOT drag the price down."""
     def side_effect(url, headers=None, params=None, timeout=None):
         if "item_summary/search" in url:
-            by_title = "Boxset" in params["q"]
+            by_title = "Boxset" in params.get("q", "")
             if "1000|1500|1750" in params["filter"]:
                 return _resp({"itemSummaries": []})
             if by_title:  # a $1.50-delivered wrong match
