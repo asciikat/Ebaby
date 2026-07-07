@@ -9,6 +9,7 @@ running before we started, in which case we leave it alone).
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 PORT = 8765
@@ -31,8 +32,19 @@ class Api:
         self.window = None
 
     def close_app(self):
-        if self.window is not None:
-            self.window.destroy()
+        # Destroy OFF the JS-bridge thread. pywebview dispatches this api call
+        # synchronously and the page awaits its return; calling
+        # window.destroy() inline tears the window down from inside that very
+        # call and deadlocks the GUI thread — the window blanks and hangs
+        # "(Not Responding)". A short-lived thread lets close_app() return at
+        # once so the bridge completes, then the window closes cleanly.
+        def _shutdown():
+            try:
+                if self.window is not None:
+                    self.window.destroy()
+            except Exception:
+                pass
+        threading.Thread(target=_shutdown, daemon=True).start()
 
 
 def main() -> int:
