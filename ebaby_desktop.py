@@ -6,11 +6,14 @@ isn't already up, waits for the port, then opens a native window on it.
 Closing the window shuts the server down again (unless it was already
 running before we started, in which case we leave it alone).
 """
+import json
 import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 
 PORT = 8765
 SERVER_DIR = "/mnt/c/Users/mardi/Documents/Ebay code/.claude/worktrees/busy-napier-89a58d"
@@ -24,27 +27,30 @@ def port_open() -> bool:
         return s.connect_ex(("127.0.0.1", PORT)) == 0
 
 
-class Api:
-    """Exposed to the page as window.pywebview.api.* — lets the "Accept
-    Hustle?" button close this window itself once cleanup is done, instead
-    of leaving the user to close it by hand."""
-    def __init__(self):
-        self.window = None
+def _watch_for_quit(window, stop_event):
+    """Poll the server's quit flag (set by the 'Accept Hustle?' button) and
+    close the window when it fires.
 
-    def close_app(self):
-        # Destroy OFF the JS-bridge thread. pywebview dispatches this api call
-        # synchronously and the page awaits its return; calling
-        # window.destroy() inline tears the window down from inside that very
-        # call and deadlocks the GUI thread — the window blanks and hangs
-        # "(Not Responding)". A short-lived thread lets close_app() return at
-        # once so the bridge completes, then the window closes cleanly.
-        def _shutdown():
-            try:
-                if self.window is not None:
-                    self.window.destroy()
-            except Exception:
-                pass
-        threading.Thread(target=_shutdown, daemon=True).start()
+    This intentionally does NOT use pywebview's JS->Python bridge
+    (window.pywebview.api / js_api=). That bridge proved unreliable in
+    practice: sometimes unavailable to the page at all, and when it WAS
+    reachable, calling window.destroy() from inside the bridge's own callback
+    thread deadlocked the GUI on some backends (the window would blank and
+    Windows would mark it "(Not Responding)"). Polling from a plain thread
+    that this script itself owns — never invoked BY the webview, only ever
+    calling INTO it — sidesteps both failure modes: destroy() is called the
+    same way pywebview's own docs recommend (from a background thread while
+    webview.start() runs the GUI loop on the main thread)."""
+    url = f"http://127.0.0.1:{PORT}/api/quit-status"
+    while not stop_event.is_set():
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                if json.load(resp).get("quit"):
+                    window.destroy()
+                    return
+        except (urllib.error.URLError, OSError, ValueError):
+            pass  # server hiccup / not up yet — just keep polling
+        stop_event.wait(0.5)
 
 
 def main() -> int:
@@ -68,14 +74,16 @@ def main() -> int:
             print("EBABY engine failed to start — check WSL Debian + ~/Ebabyv2")
             return 1
 
-    api = Api()
-    api.window = webview.create_window(
+    window = webview.create_window(
         "EBABY — PLASTIC IN. PAPER OUT.",
         f"http://127.0.0.1:{PORT}",
         width=1180, height=980, background_color="#0a0a0d",
-        js_api=api,
     )
+    stop_event = threading.Event()
+    watcher = threading.Thread(target=_watch_for_quit, args=(window, stop_event), daemon=True)
+    watcher.start()
     webview.start()
+    stop_event.set()  # window closed some other way (the X button) — stop polling
 
     if started_here:
         subprocess.run(

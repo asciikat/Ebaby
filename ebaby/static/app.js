@@ -574,15 +574,14 @@ $("#btn-accept-yes").addEventListener("click", async () => {
       yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
       return;
     }
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.close_app) {
-      window.pywebview.api.close_app();
-    } else {
-      // not running inside the desktop app (e.g. a plain browser tab) —
-      // nothing left to close automatically
-      $("#accept-modal .modal-box").innerHTML =
-        `<h2 class="mission wasted">CLEANED UP</h2>` +
-        `<p class="hint">Only the cropped photos and eBay files remain. You can close this window now.</p>`;
-    }
+    // Tell the desktop wrapper (if any) to close its window — it polls this
+    // flag from its own background thread, so a plain browser tab (no
+    // wrapper watching) just leaves it set harmlessly.
+    await api(`/quit`, { method: "POST" }).catch(() => {});
+    $("#accept-modal .modal-box").innerHTML =
+      `<h2 class="mission wasted">CLEANED UP</h2>` +
+      `<p class="hint">Only the cropped photos and eBay files remain. ` +
+      `${window.pywebview ? "Closing…" : "You can close this window now."}</p>`;
   } catch (err) {
     alert(`Cleanup failed: ${err.message}`);
     yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";

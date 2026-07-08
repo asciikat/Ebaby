@@ -592,3 +592,15 @@ def test_batch_lock_returns_the_same_lock_object_for_the_same_name(tmp_path):
     serialize on ONE lock, not two different ones."""
     assert server._batch_lock("run1") is server._batch_lock("run1")
     assert server._batch_lock("run1") is not server._batch_lock("run2")
+
+
+def test_quit_status_starts_false_and_flips_after_request(client):
+    # _QUIT_REQUESTED is a module-level singleton (mirrors the real desktop
+    # app's lifetime) — clear it after so this test can't leak into others.
+    assert not server._QUIT_REQUESTED.is_set()
+    try:
+        assert client.get("/api/quit-status").json()["quit"] is False
+        assert client.post("/api/quit").json()["ok"] is True
+        assert client.get("/api/quit-status").json()["quit"] is True
+    finally:
+        server._QUIT_REQUESTED.clear()

@@ -619,6 +619,28 @@ def accept_hustle(name: str):
         return result
 
 
+# The desktop wrapper (ebaby_desktop.py) closes its own window once cleanup
+# is done. It used to do this via pywebview's JS->Python bridge (window.
+# pywebview.api.*), but that bridge proved unreliable in practice — either
+# unavailable to the page at all, or (when it WAS reachable) deadlocking the
+# GUI thread on destroy(). A plain flag the desktop wrapper polls from its
+# OWN background thread sidesteps the bridge entirely: no JS<->Python call in
+# either direction, just an HTTP GET the page and the wrapper both already
+# know how to make.
+_QUIT_REQUESTED = threading.Event()
+
+
+@app.post("/api/quit")
+def request_quit():
+    _QUIT_REQUESTED.set()
+    return {"ok": True}
+
+
+@app.get("/api/quit-status")
+def quit_status():
+    return {"quit": _QUIT_REQUESTED.is_set()}
+
+
 @app.get("/api/files/{name}/{stage}/{filename}")
 def serve_file(name: str, stage: str, filename: str):
     """Serve a batch image to the browser (crop grid + editor). Path pieces
