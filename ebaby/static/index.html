@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <title>EBABY</title>
+  <link rel="icon" type="image/png" href="/img/favicon.png" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
   <header>
-    <h1 class="logo">EBABY</h1>
+    <img class="logo-img" src="/img/logo.png" alt="EBABY" />
     <div class="tagline">PLASTIC IN. PAPER OUT.</div>
+    <button id="btn-sound" class="snd-btn" title="music + sounds on/off">&#128266;</button>
   </header>
 
   <!-- 1. UPLOAD -->
@@ -40,6 +42,7 @@
   <!-- 2. AUTOMATED RUN -->
   <section id="screen-progress" hidden>
     <div id="stage-rail"></div>
+    <img id="job-wheel" src="/img/wheel.png" alt="" />
     <h2 class="mission">JOB IN PROGRESS<span class="dots"></span></h2>
     <ul id="mission-log"></ul>
   </section>

@@ -27,26 +27,62 @@ async function api(path, opts = {}) {
 }
 
 const RAIL = [
-  ["upload", "LOAD UP"],
-  ["color", "CLEAN"],
-  ["barcode", "INTERROGATE"],
-  ["ebay", "FENCE"],
-  ["crop", "CHOP"],
-  ["done", "PAID"],
+  ["upload", "LOAD UP", "loadup"],
+  ["color", "CLEAN", "clean"],
+  ["barcode", "INTERROGATE", "interrogate"],
+  ["ebay", "FENCE", "fence"],
+  ["crop", "CHOP", "chop"],
+  ["done", "PAID", "paid"],
 ];
 
 function setRail(stage) {
   const rail = $("#stage-rail");
   rail.innerHTML = "";
   const idx = RAIL.findIndex(([k]) => k === stage);
-  RAIL.forEach(([k, label], i) => {
+  RAIL.forEach(([k, label, icon], i) => {
     const chip = document.createElement("span");
-    chip.textContent = label;
+    const img = document.createElement("img");
+    img.src = `/img/icon-${icon}.png`;
+    img.alt = "";
+    chip.appendChild(img);
+    chip.appendChild(document.createTextNode(label));
     if (i < idx) chip.className = "done";
     if (i === idx) chip.className = "active";
     rail.appendChild(chip);
   });
 }
+
+/* ---------- sound: G-funk loop + synth stabs, one mute switch ---------- */
+
+const AUDIO = {
+  muted: localStorage.getItem("ebaby-muted") === "1",
+  bgm: null,
+  startBgm() {
+    if (this.muted) return;
+    if (!this.bgm) {
+      this.bgm = new Audio("/sounds/theme-loop.mp3");
+      this.bgm.loop = true;
+      this.bgm.volume = 0.22;
+    }
+    this.bgm.play().catch(() => {});   // browsers may block until a user gesture
+  },
+  stab(name) {
+    if (this.muted) return;
+    const a = new Audio(`/sounds/${name}.mp3`);
+    a.volume = 0.5;
+    a.play().catch(() => {});
+  },
+  toggle() {
+    this.muted = !this.muted;
+    localStorage.setItem("ebaby-muted", this.muted ? "1" : "0");
+    if (this.muted) { if (this.bgm) this.bgm.pause(); }
+    else this.startBgm();
+    $("#btn-sound").innerHTML = this.muted ? "&#128263;" : "&#128266;";
+  },
+};
+
+$("#btn-sound").addEventListener("click", () => AUDIO.toggle());
+if (AUDIO.muted) $("#btn-sound").innerHTML = "&#128263;";
 
 function show(id) {
   for (const el of document.querySelectorAll("section[id^='screen-']")) {
@@ -134,6 +170,8 @@ $("#btn-start").addEventListener("click", () => {
   const btn = $("#btn-start");
   if (btn.disabled) return;
   btn.disabled = true; // double-click = two batches
+  AUDIO.stab("stab-start");
+  AUDIO.startBgm();
   runJob().catch(busted);
 });
 
@@ -272,6 +310,7 @@ async function finishJob() {
   setRail("done");
   renderEbayPanel(e);
   renderCropGrid();
+  AUDIO.stab("stab-passed");   // MISSION PASSED — respect +
   show("screen-crop");
 }
 
@@ -637,6 +676,7 @@ async function offerResume() {
     $("#resume-banner").hidden = false;
     $("#btn-resume").addEventListener("click", () => {
       $("#resume-banner").hidden = true;
+      AUDIO.startBgm();
       resumeBatch(latest, s).catch(busted);
     }, { once: true });
   } catch { /* no server-side history — fresh start */ }
