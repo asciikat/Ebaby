@@ -5,6 +5,7 @@ this file only sequences calls into ebaby.stages.* and ebaby.batch.
 import re
 import shutil
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
@@ -209,25 +210,41 @@ def color_run(name: str):
     for (zone, stem), src in by_stem.items():
         sets.setdefault((zone, stem.split("_")[0]), []).append(src)
     total = sum(len(g) for g in sets.values())
-    count, i = 0, 0
+    progress = {"done": 0, "colored": 0}
+    failed = []
+    plock = threading.Lock()
     _set_progress(d, state, "color", 0, total)
-    for group in sets.values():
+
+    def _process_set(group):
+        """One disc's shots, in order, sharing one white balance. A corrupt
+        file is skipped and reported — it must not sink the whole batch."""
         shared = None
         for src in sorted(group):
             out_path = out_dir / f"{src.stem}.png"
-            if src.suffix.lower() in RAW_EXTS:
-                g = color.color_correct_file(src, out_path, gains=shared)
-                count += 1
-            else:
-                g = color.color_correct_plain_file(src, out_path, gains=shared)
-                if g is not None:
-                    count += 1
+            g = None
+            try:
+                if src.suffix.lower() in RAW_EXTS:
+                    g = color.color_correct_file(src, out_path, gains=shared)
+                else:
+                    g = color.color_correct_plain_file(src, out_path, gains=shared)
+            except Exception as e:  # rawpy/cv2 raise all sorts on bad files
+                with plock:
+                    failed.append(f"{src.name}: {e}")
             if shared is None and g is not None:
                 shared = g  # first shot sets the balance for the whole set
-            i += 1
-            _set_progress(d, state, "color", i, total)
+            with plock:
+                progress["done"] += 1
+                if g is not None:
+                    progress["colored"] += 1
+                _set_progress(d, state, "color", progress["done"], total)
+
+    # rawpy's libraw decode and most of the cv2/numpy pipeline release the
+    # GIL, so two sets in flight nearly halves wall-clock. Kept at 2: each
+    # 16-bit float pipeline holds several full-frame copies in RAM.
+    with ThreadPoolExecutor(max_workers=min(2, max(1, len(sets)))) as pool:
+        list(pool.map(_process_set, sets.values()))
     batch.advance_stage(d, "color", "barcode")
-    return {"colored": count}
+    return {"colored": progress["colored"], "failed": failed}
 
 
 @app.post("/api/batches/{name}/barcode/run")
@@ -236,26 +253,42 @@ def barcode_run(name: str):
     if err:
         return err
     results, crops = {}, {}
-    backs = sorted((d / "2_color").glob("*_back*.png"))
-    _set_progress(d, state, "barcode", 0, len(backs))
-    for i, back_photo in enumerate(backs, 1):
-        key = back_photo.stem.split("_")[0]
-        crop_path = d / "3_barcodes" / f"{back_photo.stem}_barcode.png"
-        located = barcode_locate.locate_and_crop(back_photo, crop_path)
-        # prefer the (downscaled) crop even when locate fell back — decoding
-        # the full-resolution original hangs for minutes per miss
-        img = cv2.imread(str(crop_path))
-        if img is None:
-            img = cv2.imread(str(back_photo))
-        # `located` is deliberately NOT part of this guard: locate_and_crop can
-        # report success while the crop it wrote is unreadable, and if the back
-        # photo is unreadable too, img is None — decoding None must be skipped
-        # (decode_barcodes also guards, but keep the crash off the hot path).
-        codes = barcode_decode.decode_barcodes(img) if img is not None else []
-        results[key] = codes[0] if codes else None
-        if crop_path.is_file():
-            crops[key] = crop_path.name  # fix screen shows the actual barcode
-        _set_progress(d, state, "barcode", i, len(backs))
+    # group every colour-corrected photo by its set — a barcode is USUALLY on
+    # the back, but when the back shot misses, the inside (disc face) and even
+    # the front sometimes carry a readable code. Try them all before making
+    # the user type.
+    sets = {}
+    for p in sorted((d / "2_color").glob("*.png")):
+        key, _, role = p.stem.partition("_")
+        sets.setdefault(key, {})[role] = p
+    role_order = ("back", "inside", "front")
+    _set_progress(d, state, "barcode", 0, len(sets))
+    for i, key in enumerate(sorted(sets), 1):
+        roles = sets[key]
+        ordered = [roles[r] for r in role_order if r in roles]
+        ordered += [p for r, p in sorted(roles.items()) if r not in role_order]
+        code = None
+        for photo in ordered:
+            crop_path = d / "3_barcodes" / f"{photo.stem}_barcode.png"
+            try:
+                barcode_locate.locate_and_crop(photo, crop_path)
+            except ValueError:
+                continue                     # unreadable file — try the next shot
+            # prefer the (downscaled) crop even when locate fell back —
+            # decoding the full-resolution original hangs for minutes per miss
+            img = cv2.imread(str(crop_path))
+            if img is None:
+                img = cv2.imread(str(photo))
+            codes = barcode_decode.decode_barcodes(img) if img is not None else []
+            # the fix screen's evidence = the BACK's crop (that's where the
+            # printed digits live), so only the first tried photo sets it
+            if key not in crops and crop_path.is_file():
+                crops[key] = crop_path.name
+            if codes:
+                code = codes[0]
+                break
+        results[key] = code
+        _set_progress(d, state, "barcode", i, len(sets))
 
     state["barcodes"] = results
     state["barcode_crops"] = crops
@@ -269,6 +302,14 @@ class BarcodeManualRequest(BaseModel):
     digits: str
 
 
+def _gtin_checksum_ok(digits: str) -> bool:
+    """EAN-8/UPC-A/EAN-13/GTIN-14 check digit. Catches typos at the door
+    instead of pricing the wrong disc."""
+    total = sum(int(c) * (3 if i % 2 else 1)
+                for i, c in enumerate(reversed(digits[:-1]), 1))
+    return (10 - total % 10) % 10 == int(digits[-1])
+
+
 @app.post("/api/batches/{name}/barcode/manual")
 def barcode_manual(name: str, req: BarcodeManualRequest):
     d, state, err = _stage_gate(name)
@@ -280,6 +321,11 @@ def barcode_manual(name: str, req: BarcodeManualRequest):
     if not 8 <= len(digits) <= 14:
         return JSONResponse(status_code=422, content={
             "error": f"'{req.digits}' doesn't look like a barcode (need 8-14 digits)"})
+    # retail disc barcodes are all GTIN — a failed check digit IS a typo
+    if len(digits) in (8, 12, 13, 14) and not _gtin_checksum_ok(digits):
+        return JSONResponse(status_code=422, content={
+            "error": f"'{digits}' fails its check digit — one of those numbers "
+                     "is off, read it again"})
     state.setdefault("barcodes", {})[req.key] = digits
     batch.write_state(d, state)
     return state

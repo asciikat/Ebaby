@@ -96,12 +96,17 @@ def test_upload_strips_path_components_and_dedupes(client, tmp_path):
 def test_barcode_manual_sanitizes_digits_and_rejects_junk(client, tmp_path):
     d = _make_batch_at_stage(client, tmp_path, "barcode")
     ok = client.post("/api/batches/run1/barcode/manual",
-                     json={"key": "a", "digits": " 4006-3813 3393 "})
+                     json={"key": "a", "digits": " 0360-0029 1452 "})
     assert ok.status_code == 200
-    assert batch.read_state(d)["barcodes"]["a"] == "400638133393"
+    assert batch.read_state(d)["barcodes"]["a"] == "036000291452"
     bad = client.post("/api/batches/run1/barcode/manual",
                       json={"key": "a", "digits": "not/a/barcode"})
     assert bad.status_code == 422
+    # one digit off -> the GTIN check digit catches the typo
+    typo = client.post("/api/batches/run1/barcode/manual",
+                       json={"key": "a", "digits": "036000291453"})
+    assert typo.status_code == 422
+    assert "check digit" in typo.json()["error"]
 
 
 def test_crop_run_on_unfinished_batch_is_409_not_empty_success(client, tmp_path):
@@ -140,6 +145,36 @@ def test_barcode_run_records_digits_and_advances(mock_locate, mock_decode, clien
     assert batch.read_state(d)["stage"] == "ebay"
 
 
+@patch("ebaby.server.barcode_decode.decode_barcodes")
+@patch("ebaby.server.barcode_locate.locate_and_crop", return_value=True)
+def test_barcode_run_falls_through_to_the_sets_other_photos(mock_locate, mock_decode,
+                                                            client, tmp_path):
+    """The back shot misses -> the INSIDE (then front) shot of the same set
+    still gets scanned before the user is asked to type. This is the fix for
+    the 'type them in yourself' screen appearing when another photo of the
+    very same disc has a perfectly readable barcode."""
+    d = _make_batch_at_stage(client, tmp_path, "barcode")
+    (d / "2_color").mkdir(parents=True, exist_ok=True)
+    img = np.full((20, 20, 3), 255, dtype=np.uint8)
+    for role in ("front", "back", "inside"):
+        cv2.imwrite(str(d / f"2_color/a_{role}.png"), img)
+
+    tried = []
+
+    def decode(image, *a, **k):
+        # barcode_run reads the CROP it just asked locate to write; the mock
+        # locate writes nothing, so imread falls back to the photo itself —
+        # track WHICH photo each decode call is for via call order
+        tried.append(1)
+        return ["9315842020857"] if len(tried) == 2 else []  # 2nd = inside
+
+    mock_decode.side_effect = decode
+    resp = client.post("/api/batches/run1/barcode/run")
+    assert resp.status_code == 200
+    assert resp.json()["results"]["a"] == "9315842020857"  # inside shot won
+    assert len(tried) == 2                                  # front never needed
+
+
 @patch("ebaby.server.barcode_locate.locate_and_crop", return_value=True)
 def test_barcode_run_unreadable_photo_is_a_miss_not_a_batch_crash(mock_locate, client, tmp_path):
     """locate_and_crop can report success while both the crop and the back
@@ -158,10 +193,10 @@ def test_barcode_run_unreadable_photo_is_a_miss_not_a_batch_crash(mock_locate, c
 def test_barcode_manual_override_records_digits(client, tmp_path):
     d = _make_batch_at_stage(client, tmp_path, "barcode")
     resp = client.post("/api/batches/run1/barcode/manual",
-                       json={"key": "a", "digits": "400638133393"})
+                       json={"key": "a", "digits": "4006381333931"})
     assert resp.status_code == 200
     state = batch.read_state(d)
-    assert state["barcodes"]["a"] == "400638133393"
+    assert state["barcodes"]["a"] == "4006381333931"
 
 
 @patch("ebaby.server.ebay.write_csv")

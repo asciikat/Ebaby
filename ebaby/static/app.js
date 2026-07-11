@@ -271,7 +271,8 @@ async function runFromColor() {
   const c = checked(await withProgress(
     api(`/batches/${state.batchName}/color/run`, { method: "POST" }),
     step, "Cleaning the goods"), "colour stage");
-  step.done(`${c.colored} processed`);
+  step.done(`${c.colored} processed${c.failed && c.failed.length
+    ? ` — ${c.failed.length} unreadable file(s) skipped` : ""}`);
   await runFromBarcode();
 }
 
@@ -304,7 +305,7 @@ function renderBarcodeTable(results, crops) {
     const status = digits
       ? `<span class="got">${digits}</span>`
       : `<span class="miss">MISSED</span>`;
-    const fix = digits ? "" : `<input type="text" inputmode="numeric" data-fix-key="${key}" placeholder="type the digits" />`;
+    const fix = digits ? "" : `<input type="text" inputmode="numeric" maxlength="14" data-fix-key="${key}" placeholder="type the digits (blank = skip pricing)" />`;
     // show the barcode crop so the digits can be read OFF THE SCREEN
     const evidence = crops && crops[key]
       ? `<img class="evidence" src="/api/files/${state.batchName}/3_barcodes/${crops[key]}" onerror="this.remove()" />`
