@@ -220,7 +220,6 @@ $("#btn-start").addEventListener("click", () => {
   if (btn.disabled) return;
   btn.disabled = true; // double-click = two batches
   AUDIO.stopIntro(); // menu music out, the job runs in silence
-  AUDIO.stab("stab-start");
   $("#upload-error").textContent = "";
   runJob().catch(busted);
 });
