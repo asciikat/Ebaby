@@ -14,9 +14,21 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 PORT = 8765
-SERVER_DIR = "/mnt/c/Users/mardi/Documents/Ebay code/.claude/worktrees/busy-napier-89a58d"
+
+
+def _wsl_server_dir() -> str:
+    """This folder's own path, spelled the WSL way (C:\\x -> /mnt/c/x) —
+    derived at runtime so moving the Ebaby folder never breaks the launcher."""
+    p = Path(__file__).resolve().parent
+    drive = p.drive.rstrip(":").lower()
+    rest = p.as_posix()[len(p.drive):]
+    return f"/mnt/{drive}{rest}"
+
+
+SERVER_DIR = _wsl_server_dir()
 BOOT = (f"source ~/Ebabyv2/bin/activate && cd '{SERVER_DIR}' "
         f"&& python3 -m ebaby.server")
 
