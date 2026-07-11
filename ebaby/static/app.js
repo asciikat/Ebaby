@@ -614,12 +614,11 @@ $("#btn-accept-yes").addEventListener("click", async () => {
       yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
       return;
     }
-    AUDIO.stab("mission-passed");
+    // No jingle here — the G-funk is already rolling and carries the exit.
     // Tell the desktop wrapper (if any) to close its window — it polls this
     // flag from its own background thread, so a plain browser tab (no
     // wrapper watching) just leaves it set (cleared on next wrapper launch).
-    // Wait for the ~3s fanfare first or the closing window cuts it off.
-    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 3300);
+    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 1000);
     // In the desktop app the window closes itself in <1s; in a browser tab
     // it can't, so ALWAYS offer a way out instead of a dead-end modal.
     $("#accept-modal .modal-box").innerHTML =
