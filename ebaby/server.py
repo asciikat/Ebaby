@@ -641,6 +641,16 @@ def quit_status():
     return {"quit": _QUIT_REQUESTED.is_set()}
 
 
+@app.post("/api/quit/clear")
+def quit_clear():
+    """The desktop wrapper calls this at startup. The flag is process-wide
+    state: if a previous Accept Hustle set it and the server kept running
+    (browser mode, or the wrapper reused an already-up server), the next
+    wrapper launch would see the STALE flag and close its window instantly."""
+    _QUIT_REQUESTED.clear()
+    return {"ok": True}
+
+
 @app.get("/api/files/{name}/{stage}/{filename}")
 def serve_file(name: str, stage: str, filename: str):
     """Serve a batch image to the browser (crop grid + editor). Path pieces

@@ -615,12 +615,15 @@ $("#btn-accept-yes").addEventListener("click", async () => {
     }
     // Tell the desktop wrapper (if any) to close its window — it polls this
     // flag from its own background thread, so a plain browser tab (no
-    // wrapper watching) just leaves it set harmlessly.
+    // wrapper watching) just leaves it set (cleared on next wrapper launch).
     await api(`/quit`, { method: "POST" }).catch(() => {});
+    // In the desktop app the window closes itself in <1s; in a browser tab
+    // it can't, so ALWAYS offer a way out instead of a dead-end modal.
     $("#accept-modal .modal-box").innerHTML =
-      `<h2 class="mission wasted">CLEANED UP</h2>` +
-      `<p class="hint">Only the cropped photos and eBay files remain. ` +
-      `${window.pywebview ? "Closing…" : "You can close this window now."}</p>`;
+      `<h2 class="mission passed">CLEANED UP</h2>` +
+      `<p class="hint">Only the cropped photos and eBay files remain.</p>` +
+      `<button id="btn-after-accept" class="big-btn">START ANOTHER JOB</button>`;
+    $("#btn-after-accept").addEventListener("click", () => location.reload());
   } catch (err) {
     alert(`Cleanup failed: ${err.message}`);
     yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";

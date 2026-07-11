@@ -53,6 +53,14 @@ def _watch_for_quit(window, stop_event):
     calling INTO it — sidesteps both failure modes: destroy() is called the
     same way pywebview's own docs recommend (from a background thread while
     webview.start() runs the GUI loop on the main thread)."""
+    # clear any STALE flag first — a reused server may still hold quit=True
+    # from a previous Accept Hustle, which would close this window at launch
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(f"http://127.0.0.1:{PORT}/api/quit/clear",
+                                   method="POST"), timeout=5).close()
+    except (urllib.error.URLError, OSError):
+        pass
     url = f"http://127.0.0.1:{PORT}/api/quit-status"
     while not stop_event.is_set():
         try:

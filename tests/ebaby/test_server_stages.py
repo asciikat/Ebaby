@@ -594,6 +594,18 @@ def test_batch_lock_returns_the_same_lock_object_for_the_same_name(tmp_path):
     assert server._batch_lock("run1") is not server._batch_lock("run2")
 
 
+def test_quit_clear_resets_a_stale_flag(client):
+    """A reused server can hold quit=True from a previous Accept Hustle —
+    the wrapper clears it at launch so its window doesn't close instantly."""
+    try:
+        client.post("/api/quit")
+        assert client.get("/api/quit-status").json()["quit"] is True
+        assert client.post("/api/quit/clear").json()["ok"] is True
+        assert client.get("/api/quit-status").json()["quit"] is False
+    finally:
+        server._QUIT_REQUESTED.clear()
+
+
 def test_quit_status_starts_false_and_flips_after_request(client):
     # _QUIT_REQUESTED is a module-level singleton (mirrors the real desktop
     # app's lifetime) — clear it after so this test can't leak into others.
