@@ -122,16 +122,48 @@ function logStep(text) {
 
 /* ---------- 1. upload screen ---------- */
 
+/* used discs need sets of 3 shots, new discs sets of 2 — catch a bad count
+   HERE instead of letting the run start and come back BUSTED */
+const SHOTS_PER_SET = { used: 3, new: 2 };
+
 function refreshStartButton() {
   const total = state.pending.used.length + state.pending.new.length;
-  $("#btn-start").disabled = total === 0;
+  const problems = [];
+  for (const zone of ["used", "new"]) {
+    const n = state.pending[zone].length;
+    const per = SHOTS_PER_SET[zone];
+    if (n % per) problems.push(
+      `${zone.toUpperCase()}: ${n} photos isn't full sets of ${per} — add or remove some`);
+  }
+  $("#btn-start").disabled = total === 0 || problems.length > 0;
+  $("#upload-error").textContent = total ? problems.join("  •  ") : "";
+}
+
+function renderFileList(zone) {
+  const box = $(`#files-${zone}`);
+  box.innerHTML = "";
+  state.pending[zone].forEach((f, i) => {
+    const chip = document.createElement("span");
+    chip.className = "file-chip";
+    chip.textContent = f.name;
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.title = "remove this photo";
+    x.addEventListener("click", () => {
+      state.pending[zone].splice(i, 1);
+      renderFileList(zone);
+    });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  });
+  $(`#count-${zone}`).textContent = `${state.pending[zone].length} photos`;
+  refreshStartButton();
 }
 
 function addFiles(zone, fileList) {
   if (fileList.length) AUDIO.stab("camera-shutter");
   for (const f of fileList) state.pending[zone].push(f);
-  $(`#count-${zone}`).textContent = `${state.pending[zone].length} photos`;
-  refreshStartButton();
+  renderFileList(zone);
 }
 
 for (const zone of ["used", "new"]) {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>EBABY</title>
   <link rel="icon" type="image/png" href="/img/favicon.png" />
-  <link rel="stylesheet" href="/app.css?v=3" />
+  <link rel="stylesheet" href="/app.css?v=7" />
 </head>
 <body>
   <header>
@@ -22,6 +22,7 @@
         <input type="file" id="input-used" multiple accept="image/*,.dng,.nef" hidden />
         <button class="pick" data-pick="used">ADD PHOTOS</button>
         <div class="file-count" id="count-used">0 photos</div>
+        <div class="file-list" id="files-used"></div>
       </div>
       <div class="dropzone" data-zone="new">
         <h3>NEW DVDS</h3>
@@ -29,6 +30,7 @@
         <input type="file" id="input-new" multiple accept="image/*,.dng,.nef" hidden />
         <button class="pick" data-pick="new">ADD PHOTOS</button>
         <div class="file-count" id="count-new">0 photos</div>
+        <div class="file-list" id="files-new"></div>
       </div>
     </div>
     <button id="btn-start" class="big-btn" disabled>RUN THE HUSTLE</button>
@@ -99,6 +101,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 </html>
