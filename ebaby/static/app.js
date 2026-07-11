@@ -151,6 +151,7 @@ for (const zone of ["used", "new"]) {
 /* ---------- 2. the automated job ---------- */
 
 function busted(err) {
+  AUDIO.stab("siren-busted");
   show("screen-progress"); // the error must land on a VISIBLE screen
   logStep("BUSTED").fail(err.message);
   const retry = document.createElement("button");
@@ -613,10 +614,12 @@ $("#btn-accept-yes").addEventListener("click", async () => {
       yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
       return;
     }
+    AUDIO.stab("mission-passed");
     // Tell the desktop wrapper (if any) to close its window — it polls this
     // flag from its own background thread, so a plain browser tab (no
     // wrapper watching) just leaves it set (cleared on next wrapper launch).
-    await api(`/quit`, { method: "POST" }).catch(() => {});
+    // Wait for the ~1s jingle first or the closing window cuts it off.
+    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 1500);
     // In the desktop app the window closes itself in <1s; in a browser tab
     // it can't, so ALWAYS offer a way out instead of a dead-end modal.
     $("#accept-modal .modal-box").innerHTML =
