@@ -377,11 +377,11 @@ function renderEbayTable(rows) {
 }
 
 function renderEbayPanel(e) {
-  const warn = e.warning
+  // paths live in the txt/CSV files themselves — the user doesn't want them
+  // on screen, so the panel only appears when there's a warning to show
+  $("#listing-info").hidden = !e.warning;
+  $("#listing-info").innerHTML = e.warning
     ? `<div class="miss">${esc(e.warning)} — photos are named by barcode instead.</div>` : "";
-  $("#listing-info").innerHTML = warn +
-    `Listing text file: <code>${esc(e.listing_txt || "?")}</code><br>` +
-    `Batch folder: <code>${esc(e.folder || "?")}</code>`;
   state.ebayRows = e.rows || [];
   renderFenceCards(state.ebayRows);
   renderEbayTable(state.ebayRows);
