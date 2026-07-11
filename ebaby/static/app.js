@@ -384,9 +384,11 @@ function renderFenceCards(rows) {
     // condition's numbers (collapsed server-side)
     const label = (row.Condition || (row.Stock === "new" ? "New" : "Used")).toUpperCase();
     const found = priceTag(row["Lowest Price (AUD)"]);
+    const sold = priceTag(row["Last Sold (AUD)"]);
     const mine = priceTag(row["Your Price (AUD)"]);
     const title = row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC";
-    const noComps = found === "—";
+    const usingSold = found === "—" && sold !== "—";
+    const noComps = found === "—" && sold === "—";
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
@@ -396,10 +398,12 @@ function renderFenceCards(rows) {
           `Hit FIX: correct the title if it's off, or name your own price.</div>` : "") +
       `<div class="score-prices">` +
         `<button class="fix-btn" data-fix="${esc(row["Image Set Name"] || "")}" title="Wrong disc? Fix the title / price">✎ FIX</button>` +
-        `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
+        (usingSold
+          ? `<div class="score-small"><span class="label">LAST SOLD ${label}</span>${sold}</div>`
+          : `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>`) +
       `</div>` +
       `<div class="score-move">` +
-        `<span class="move-tag">YOUR MOVE · 10% UNDER</span>` +
+        `<span class="move-tag">YOUR MOVE · 10% UNDER${usingSold ? " LAST SALE" : ""}</span>` +
         `<div class="move-prices">` +
           `<div class="move-big"><span class="label">LIST ${label} AT</span>${mine}</div>` +
         `</div>` +

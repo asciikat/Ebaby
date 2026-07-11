@@ -61,6 +61,8 @@ def test_get_token_http_error_status_raises_ebay_unavailable(mock_post, monkeypa
 @patch("ebaby.stages.ebay._SESSION.get")
 def test_fetch_listing_row_prefers_new_price_and_specifics(mock_get):
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url and "1000|1500|1750" in params["filter"]:
             return _resp({"itemSummaries": [
                 {"itemId": "NEW1", "title": "New Listing Title",
@@ -97,6 +99,8 @@ def test_fetch_listing_row_returns_none_when_nothing_found(mock_get):
 def test_lowest_price_includes_postage(mock_get):
     """$8 item + $4 postage ($12 delivered) beats a $9 item + $5 postage."""
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url and "1000|1500|1750" in params["filter"]:
             return _resp({"itemSummaries": []})
         if "item_summary/search" in url:
@@ -118,6 +122,8 @@ def test_lowest_price_includes_postage(mock_get):
 def test_no_postage_listing_ignored_when_others_quote_postage(mock_get):
     """A $2 pickup-only listing must not undercut a $10+$3 delivered quote."""
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url and "1000|1500|1750" in params["filter"]:
             return _resp({"itemSummaries": []})
         if "item_summary/search" in url:
@@ -143,6 +149,8 @@ def test_barcode_pass_searches_by_gtin_title_pass_by_text(mock_get):
     title pass stays q= on purpose (recall for sellers who skip the barcode)."""
     calls = []
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             calls.append(dict(params))
             if params.get("gtin"):  # barcode pass finds the disc
@@ -169,6 +177,8 @@ def test_barcode_pass_searches_by_gtin_title_pass_by_text(mock_get):
 def test_search_filters_out_auctions_and_pins_au_delivery(mock_get):
     seen = {}
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             seen.setdefault("filters", []).append(params["filter"])
             return _resp({"itemSummaries": []})
@@ -183,6 +193,8 @@ def test_search_filters_out_auctions_and_pins_au_delivery(mock_get):
 @patch("ebaby.stages.ebay._SESSION.get")
 def test_cheapest_of_multiple_postage_options_is_used(mock_get):
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url and "1000|1500|1750" in params["filter"]:
             return _resp({"itemSummaries": [
                 {"itemId": "N", "title": "N", "price": {"value": "10.00"},
@@ -256,6 +268,8 @@ def test_title_search_can_beat_barcode_price(mock_get):
     """Sellers who never enter a barcode are only findable by title — their
     cheaper delivered total must win. Postage rules still apply per search."""
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             by_title = "Some Movie" in params.get("q", "")
             if "1000|1500|1750" in params["filter"]:
@@ -284,6 +298,8 @@ def test_title_search_can_beat_barcode_price(mock_get):
 def test_title_search_appends_dvd_keyword(mock_get):
     seen = []
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             seen.append(params.get("q") or params.get("gtin"))
             if params.get("gtin") == "5021456189472" and "3000" in params["filter"]:
@@ -306,6 +322,8 @@ def test_title_search_failure_keeps_barcode_prices(mock_get):
     """A transient outage during the TITLE pass must not throw away the
     barcode-pass prices (or, via fetch_all, every other disc's row)."""
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             if "Some Movie" in params.get("q", ""):
                 raise requests.exceptions.ConnectionError("mid-run outage")
@@ -329,6 +347,8 @@ def test_title_search_absurdly_low_match_is_rejected(mock_get):
     """A title match far below the barcode-confirmed price (empty case /
     single disc vs boxset / generic lot) must NOT drag the price down."""
     def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
         if "item_summary/search" in url:
             by_title = "Boxset" in params.get("q", "")
             if "1000|1500|1750" in params["filter"]:
@@ -359,3 +379,50 @@ def test_guarded_min_accepts_title_price_when_no_barcode_price():
     assert ebay._guarded_min(20.0, 15.0) == 15.0
     # implausible (below 30% of barcode price) rejected
     assert ebay._guarded_min(20.0, 2.0) == 20.0
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_last_sold_fallback_when_nothing_on_sale(mock_get):
+    """No active listings at all -> the row still comes back, carrying the
+    most RECENT (not cheapest) sold price from Marketplace Insights."""
+    ebay._INSIGHTS_AVAILABLE = True
+
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({"itemSales": [
+                {"itemId": "S1", "title": "Rare Movie DVD",
+                 "lastSoldPrice": {"value": "9.50"},
+                 "lastSoldDate": "2026-06-01T00:00:00Z"},
+                {"itemId": "S2", "title": "Rare Movie DVD",
+                 "lastSoldPrice": {"value": "4.00"},
+                 "lastSoldDate": "2026-07-01T00:00:00Z"},
+            ]})
+        if "item_summary/search" in url:
+            return _resp({"itemSummaries": []})   # nothing on sale anywhere
+        if "/item/" in url:
+            return _resp({"title": "Rare Movie DVD", "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("5021456189472", "tok")
+    assert row is not None
+    assert row["_lowest_new"] is None and row["_lowest_used"] is None
+    assert row["_sold_new"] == 4.00    # newest sale wins, not the cheapest
+    assert row["Title"] == "Rare Movie DVD"
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_insights_403_disables_itself_and_returns_none_row(mock_get):
+    ebay._INSIGHTS_AVAILABLE = True
+
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
+        if "item_summary/search" in url:
+            return _resp({"itemSummaries": []})
+        raise AssertionError(f"unexpected url {url}")
+
+    mock_get.side_effect = side_effect
+    assert ebay.fetch_listing_row("5021456189472", "tok") is None
+    assert ebay._INSIGHTS_AVAILABLE is False   # one 403 turns it off for the run
+    ebay._INSIGHTS_AVAILABLE = True            # don't leak into other tests

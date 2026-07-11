@@ -20,6 +20,7 @@ from ebaby.naming_utils import slugify_title
 _TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 _SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 _ITEM_URL = "https://api.ebay.com/buy/browse/v1/item/"
+_INSIGHTS_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
 
 NEW_CONDITIONS = "1000|1500|1750"
 USED_CONDITIONS = "3000|4000|5000|6000"
@@ -27,7 +28,7 @@ USED_CONDITIONS = "3000|4000|5000|6000"
 CSV_HEADERS = [
     "Barcode", "Image Set Name", "Title", "Condition", "Region Code", "Genre",
     "Type", "Season", "Actor", "Studio", "Language", "Rating",
-    "Lowest Price (AUD)", "Your Price (AUD)",
+    "Lowest Price (AUD)", "Last Sold (AUD)", "Your Price (AUD)",
 ]
 
 # Columns written even when every row in the batch is blank for them — the
@@ -170,6 +171,44 @@ def _search_condition(query, condition_ids, headers, by_gtin=False):
     return lowest_price, best.get("itemId"), best.get("title", "")
 
 
+# Marketplace Insights (sold history) is a limited-release eBay API — most
+# keys get 401/403. One refusal turns it off for the rest of the process so a
+# batch doesn't burn a failing call per disc.
+_INSIGHTS_AVAILABLE = True
+
+
+def _search_last_sold(query, condition_ids, headers, by_gtin=False):
+    """Most recent SOLD price for the query, or (None, None, None).
+    Same (price, itemId, title) shape as _search_condition."""
+    global _INSIGHTS_AVAILABLE
+    if not _INSIGHTS_AVAILABLE:
+        return None, None, None
+    params = {
+        ("gtin" if by_gtin else "q"): query,
+        "filter": f"conditionIds:{{{condition_ids}}}",
+        "limit": "20",
+    }
+    try:
+        res = _SESSION.get(_INSIGHTS_URL, headers=headers, params=params, timeout=30)
+        if res.status_code in (401, 403):
+            _INSIGHTS_AVAILABLE = False
+            return None, None, None
+        res.raise_for_status()
+    except requests.exceptions.RequestException:
+        return None, None, None   # best-effort fallback — never sink the batch
+    best = None                   # the NEWEST sale, not the cheapest
+    for sale in res.json().get("itemSales", []):
+        price = (sale.get("lastSoldPrice") or {}).get("value")
+        if price is None:
+            continue
+        when = sale.get("lastSoldDate", "")
+        if best is None or when > best[0]:
+            best = (when, float(price), sale.get("itemId"), sale.get("title", ""))
+    if best is None:
+        return None, None, None
+    return best[1], best[2], best[3]
+
+
 def _fetch_item_specifics(item_id, headers):
     encoded = urllib.parse.quote(item_id)
     try:
@@ -215,7 +254,17 @@ def fetch_listing_row(barcode, token, marketplace=None):
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
     lowest_used, used_item_id, used_title = _search_condition(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
-    if lowest_new is None and lowest_used is None:
+    # nothing on sale right now -> what did it LAST SELL for?
+    sold_new = sold_used = None
+    if lowest_new is None:
+        sold_new, sn_id, sn_title = _search_last_sold(
+            barcode, NEW_CONDITIONS, headers, by_gtin=True)
+        new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
+    if lowest_used is None:
+        sold_used, su_id, su_title = _search_last_sold(
+            barcode, USED_CONDITIONS, headers, by_gtin=True)
+        used_item_id, used_title = used_item_id or su_id, used_title or su_title
+    if lowest_new is None and lowest_used is None and             sold_new is None and sold_used is None:
         return None
 
     specifics_item_id = new_item_id or used_item_id
@@ -238,6 +287,10 @@ def fetch_listing_row(barcode, token, marketplace=None):
             title_new = title_used = None
         lowest_new = _guarded_min(lowest_new, title_new)
         lowest_used = _guarded_min(lowest_used, title_used)
+        if lowest_new is None and sold_new is None:
+            sold_new, _, _ = _search_last_sold(q, NEW_CONDITIONS, headers)
+        if lowest_used is None and sold_used is None:
+            sold_used, _, _ = _search_last_sold(q, USED_CONDITIONS, headers)
 
     slug = slugify_title(title, fallback=barcode)
     return {
@@ -258,6 +311,8 @@ def fetch_listing_row(barcode, token, marketplace=None):
         # that matches how the disc was actually uploaded.
         "_lowest_new": round(lowest_new, 2) if lowest_new is not None else None,
         "_lowest_used": round(lowest_used, 2) if lowest_used is not None else None,
+        "_sold_new": round(sold_new, 2) if sold_new is not None else None,
+        "_sold_used": round(sold_used, 2) if sold_used is not None else None,
     }
 
 
