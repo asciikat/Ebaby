@@ -128,6 +128,7 @@ function refreshStartButton() {
 }
 
 function addFiles(zone, fileList) {
+  if (fileList.length) AUDIO.stab("camera-shutter");
   for (const f of fileList) state.pending[zone].push(f);
   $(`#count-${zone}`).textContent = `${state.pending[zone].length} photos`;
   refreshStartButton();
@@ -268,6 +269,7 @@ $("#btn-barcode-continue").addEventListener("click", async () => {
   const btn = $("#btn-barcode-continue");
   if (btn.disabled) return; // double-click would run finishJob twice
   btn.disabled = true;
+  AUDIO.stab("stab-passed"); // barcodes talked — rolling out
   try {
     for (const input of document.querySelectorAll("[data-fix-key]")) {
       const digits = input.value.trim();
@@ -311,7 +313,7 @@ async function finishJob() {
   setRail("done");
   renderEbayPanel(e);
   renderCropGrid();
-  AUDIO.stab("stab-passed");   // MISSION PASSED — respect +
+  AUDIO.stab("cash-register"); // the fence's prices hit the screen
   show("screen-crop");
 }
 
@@ -618,8 +620,8 @@ $("#btn-accept-yes").addEventListener("click", async () => {
     // Tell the desktop wrapper (if any) to close its window — it polls this
     // flag from its own background thread, so a plain browser tab (no
     // wrapper watching) just leaves it set (cleared on next wrapper launch).
-    // Wait for the ~1s jingle first or the closing window cuts it off.
-    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 1500);
+    // Wait for the ~3s fanfare first or the closing window cuts it off.
+    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 3300);
     // In the desktop app the window closes itself in <1s; in a browser tab
     // it can't, so ALWAYS offer a way out instead of a dead-end modal.
     $("#accept-modal .modal-box").innerHTML =

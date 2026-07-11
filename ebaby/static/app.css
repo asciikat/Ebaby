@@ -91,6 +91,14 @@ header { text-align: center; margin-bottom: 2rem; position: relative; }
   text-transform: uppercase;
 }
 .mission.passed { color: var(--green); border-color: var(--green); }
+.mission-stamp {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 1.2rem;
+  border-radius: 14px;
+  box-shadow: 0 0 40px rgba(255, 46, 196, .3), 0 8px 24px rgba(0, 0, 0, .6);
+}
 .mission.wasted { color: var(--red); border-color: var(--red); }
 
 .hint { color: var(--dim); }
