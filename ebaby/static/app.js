@@ -310,7 +310,6 @@ async function finishJob() {
   setRail("done");
   renderEbayPanel(e);
   renderCropGrid();
-  AUDIO.stab("cash-register"); // the fence's prices hit the screen
   AUDIO.startBgm();            // job approved — the G-funk only plays on a win
   show("screen-crop");
 }
@@ -614,11 +613,12 @@ $("#btn-accept-yes").addEventListener("click", async () => {
       yesBtn.disabled = false; noBtn.disabled = false; yesBtn.textContent = "YES";
       return;
     }
-    // No jingle here — the G-funk is already rolling and carries the exit.
+    AUDIO.stab("cash-register"); // hustle accepted — money in the register
     // Tell the desktop wrapper (if any) to close its window — it polls this
     // flag from its own background thread, so a plain browser tab (no
     // wrapper watching) just leaves it set (cleared on next wrapper launch).
-    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 1000);
+    // wait out the ~1s cha-ching before the desktop window drops
+    setTimeout(() => api(`/quit`, { method: "POST" }).catch(() => {}), 1400);
     // In the desktop app the window closes itself in <1s; in a browser tab
     // it can't, so ALWAYS offer a way out instead of a dead-end modal.
     $("#accept-modal .modal-box").innerHTML =
