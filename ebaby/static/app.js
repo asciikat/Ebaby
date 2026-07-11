@@ -84,14 +84,22 @@ const AUDIO = {
     if (this.muted) {
       if (this.bgm) this.bgm.pause();
       if (this.job) this.job.pause();
-    } else if (!$("#screen-progress").hidden) this.startJob();
-    else if (!$("#screen-crop").hidden) this.startBgm();
+    } else if (!$("#screen-crop").hidden) this.startBgm();
+    else this.startJob();
     $("#btn-sound").innerHTML = this.muted ? "&#128263;" : "&#128266;";
   },
 };
 
 $("#btn-sound").addEventListener("click", () => AUDIO.toggle());
 if (AUDIO.muted) $("#btn-sound").innerHTML = "&#128263;";
+
+// The work loop plays from the opening screen and rides through the job.
+// Autoplay is usually blocked until the user touches the page, so also arm
+// a one-shot fallback on the first click.
+AUDIO.startJob();
+document.addEventListener("pointerdown", () => {
+  if ((!AUDIO.job || AUDIO.job.paused) && $("#screen-crop").hidden) AUDIO.startJob();
+}, { once: true });
 
 function show(id) {
   for (const el of document.querySelectorAll("section[id^='screen-']")) {
@@ -198,6 +206,8 @@ function busted(err) {
   AUDIO.stopJob();
   // straight back to the opening screen — photos stay picked, ready to re-run
   show("screen-upload");
+  // once the siren clears, the loop comes back for the retry
+  setTimeout(() => { if (!$("#screen-upload").hidden) AUDIO.startJob(); }, 2500);
   $("#upload-error").textContent = `BUSTED — ${err.message}`;
   $("#btn-start").disabled = false;
 }
