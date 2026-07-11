@@ -29,7 +29,7 @@ USED_CONDITIONS = "3000|4000|5000|6000"
 CSV_HEADERS = [
     "Barcode", "Image Set Name", "Title", "Condition", "Region Code", "Genre",
     "Type", "Season", "Actor", "Studio", "Language", "Rating",
-    "Lowest Price (AUD)", "Last Sold (AUD)", "Your Price (AUD)",
+    "Lowest Price (AUD)", "Last Sold (AUD)", "Price Source", "Your Price (AUD)",
 ]
 
 # Columns written even when every row in the batch is blank for them — the
@@ -111,6 +111,34 @@ def get_token() -> str:
     return res.json()["access_token"]
 
 
+# ---- currency: everything the user sees is AUD -------------------------
+# Live ECB rates (frankfurter.app, no key needed), fetched once per process;
+# static fallbacks keep worldwide pricing working offline (better a slightly
+# stale rate than no comp at all).
+_RATES = None
+_RATE_FALLBACK = {"USD": 1.52, "GBP": 2.06, "EUR": 1.77, "NZD": 1.09,
+                  "CAD": 1.11, "JPY": 0.0105, "AUD": 1.0}
+
+
+def _aud_rate(currency):
+    """AUD per 1 unit of `currency`, or None for an unknown currency."""
+    global _RATES
+    if not currency:
+        return None
+    if currency == "AUD":
+        return 1.0
+    if _RATES is None:
+        try:
+            res = _SESSION.get("https://api.frankfurter.app/latest",
+                               params={"base": "AUD"}, timeout=15)
+            res.raise_for_status()
+            rates = res.json().get("rates", {})   # 1 AUD = rates[X] in X
+            _RATES = {k: 1.0 / v for k, v in rates.items() if v}
+        except (requests.exceptions.RequestException, ValueError, KeyError):
+            _RATES = {}
+    return _RATES.get(currency) or _RATE_FALLBACK.get(currency)
+
+
 def _delivered_price(item):
     """(total, has_postage): total is price + CHEAPEST quoted postage when the
     seller quotes postage, or the bare price when they don't. None when the
@@ -126,12 +154,13 @@ def _delivered_price(item):
             postage.append(float(opt["shippingCost"]["value"]))
         except (KeyError, TypeError, ValueError):
             continue
+    currency = (item.get("price") or {}).get("currency", "AUD")
     if postage:
-        return price + min(postage), True
-    return price, False
+        return price + min(postage), True, currency
+    return price, False, currency
 
 
-def _search_condition(query, condition_ids, headers, by_gtin=False):
+def _search_condition(query, condition_ids, headers, by_gtin=False, to_aud=False):
     # FIXED_PRICE only: an auction sitting at $0.99 with 6 days left is not
     # a real "lowest price". deliveryCountry pins postage quotes to AU.
     #
@@ -161,7 +190,13 @@ def _search_condition(query, condition_ids, headers, by_gtin=False):
         dp = _delivered_price(item)
         if dp is None:
             continue
-        (with_postage if dp[1] else bare).append((dp[0], item))
+        total, quoted, currency = dp
+        if to_aud:
+            rate = _aud_rate(currency)
+            if rate is None:
+                continue              # can't convert -> can't compare
+            total *= rate
+        (with_postage if quoted else bare).append((total, item))
 
     # Sellers who quote postage give the honest delivered total; listings
     # with no postage info only count when nobody quotes postage at all.
@@ -170,6 +205,31 @@ def _search_condition(query, condition_ids, headers, by_gtin=False):
         return None, None, None
     lowest_price, best = min(pool, key=lambda t: t[0])
     return lowest_price, best.get("itemId"), best.get("title", "")
+
+
+# When Australia has nothing on sale, the SAME search runs on eBay UK/US.
+# deliveryCountry:AU is already in the filter, so only listings that actually
+# post to Australia come back — with the postage quote — and every delivered
+# total is converted to AUD before comparing.
+_WORLDWIDE_MARKETPLACES = ("EBAY_GB", "EBAY_US")
+
+
+def _worldwide_lowest(query, condition_ids, token, by_gtin=False):
+    """Cheapest AUD-converted delivered price across the worldwide
+    marketplaces, or (None, None, None)."""
+    best = (None, None, None)
+    for mp in _WORLDWIDE_MARKETPLACES:
+        headers = {"Authorization": f"Bearer {token}",
+                   "X-EBAY-C-MARKETPLACE-ID": mp,
+                   "Content-Type": "application/json"}
+        try:
+            price, item_id, title = _search_condition(
+                query, condition_ids, headers, by_gtin=by_gtin, to_aud=True)
+        except EbayUnavailable:
+            continue                   # one marketplace down isn't fatal
+        if price is not None and (best[0] is None or price < best[0]):
+            best = (round(price, 2), item_id, title)
+    return best
 
 
 # Marketplace Insights (sold history) is a limited-release eBay API — most
@@ -213,16 +273,22 @@ def _search_last_sold(query, condition_ids, headers, by_gtin=False):
 # Fallback #2: the public sold-listings SEARCH PAGE. Plain requests get 403
 # (TLS fingerprint check), but curl_cffi impersonating Chrome + a homepage
 # warm-up (cookies) reads it fine. Best-effort: any hiccup returns nothing.
-_SCRAPE_SESSION = None
+_SCRAPE_SESSIONS = {}
 _SCRAPE_AVAILABLE = True
-_SCRAPE_DOMAINS = {"EBAY_AU": "www.ebay.com.au", "EBAY_US": "www.ebay.com",
-                   "EBAY_GB": "www.ebay.co.uk"}
+# home marketplace first, then the worldwide sites (prices converted to AUD)
+_SCRAPE_LADDER = {
+    "EBAY_AU": (("www.ebay.com.au", "AUD"), ("www.ebay.co.uk", "GBP"),
+                ("www.ebay.com", "USD")),
+    "EBAY_US": (("www.ebay.com", "USD"), ("www.ebay.co.uk", "GBP")),
+    "EBAY_GB": (("www.ebay.co.uk", "GBP"), ("www.ebay.com", "USD")),
+}
 
 
-def _scrape_last_sold(query, condition_ids):
-    """Most recent sold price scraped off the sold-listings search page,
-    or (None, None, None). _sop=13 sorts by end date, newest first."""
-    global _SCRAPE_SESSION, _SCRAPE_AVAILABLE
+def _scrape_last_sold(query, condition_ids, domain="www.ebay.com.au",
+                      currency="AUD"):
+    """Most recent sold price scraped off ONE site's sold-listings page,
+    converted to AUD, or (None, None, None). _sop=13 = newest first."""
+    global _SCRAPE_AVAILABLE
     if not _SCRAPE_AVAILABLE:
         return None, None, None
     try:
@@ -230,15 +296,17 @@ def _scrape_last_sold(query, condition_ids):
     except ImportError:
         _SCRAPE_AVAILABLE = False       # not installed — stay quiet for the run
         return None, None, None
-    domain = _SCRAPE_DOMAINS.get(cfg.EBAY_MARKETPLACE_ID, "www.ebay.com")
+    rate = _aud_rate(currency)
+    if rate is None:
+        return None, None, None
     try:
-        if _SCRAPE_SESSION is None:
+        if domain not in _SCRAPE_SESSIONS:
             sess = creq.Session(impersonate="chrome")
             sess.get(f"https://{domain}/", timeout=30)   # cookies stop the 403
-            _SCRAPE_SESSION = sess
+            _SCRAPE_SESSIONS[domain] = sess
         for attempt in range(2):        # eBay A/B-tests layouts; retry once
             time.sleep(1.0)             # polite pace — hammering earns a block
-            res = _SCRAPE_SESSION.get(
+            res = _SCRAPE_SESSIONS[domain].get(
                 f"https://{domain}/sch/i.html",
                 params={"_nkw": query, "LH_Sold": "1", "LH_Complete": "1",
                         "LH_ItemCondition": condition_ids, "_sop": "13"},
@@ -254,28 +322,38 @@ def _scrape_last_sold(query, condition_ids):
                     # sometimes unquoted in eBay's minified HTML, so no quote
                     # in the pattern.
                     for dm in re.finditer(
-                            r"Sold[^A-Za-z0-9<]{0,8}\d{1,2}\s+\w{3,9}\s+\d{4}", text):
+                            r"Sold[^A-Za-z0-9<]{0,8}(?:\d{1,2}\s+\w{3,9}\s+\d{4}"
+                            r"|\w{3,9}\s+\d{1,2},\s+\d{4})", text):
                         seg = text[dm.end():dm.end() + 5000]
                         pm = re.search(
                             r"s-(?:card|item)__price[^>]*>(?:<[^>]+>)*[^0-9<]*([\d,]+\.\d{2})",
                             seg)
                         if pm:
-                            return float(pm.group(1).replace(",", "")), None, None
+                            price = float(pm.group(1).replace(",", "")) * rate
+                            return round(price, 2), None, None
             # parse failed — a FRESH session often lands the classic layout
             sess = creq.Session(impersonate="chrome")
             sess.get(f"https://{domain}/", timeout=30)
-            _SCRAPE_SESSION = sess
+            _SCRAPE_SESSIONS[domain] = sess
         return None, None, None
     except Exception:                    # scraping is inherently fragile —
         return None, None, None          # never let it sink a batch
 
 
 def _last_sold(query, condition_ids, headers, by_gtin=False):
-    """Insights API first (exact product data), sold-page scrape second."""
+    """(price_aud, item_id, title, worldwide?) — Insights API first (exact
+    product data), then the home sold page, then the worldwide sold pages."""
     price, item_id, title = _search_last_sold(query, condition_ids, headers, by_gtin)
     if price is not None:
-        return price, item_id, title
-    return _scrape_last_sold(query, condition_ids)
+        return price, item_id, title, False
+    ladder = _SCRAPE_LADDER.get(cfg.EBAY_MARKETPLACE_ID,
+                                _SCRAPE_LADDER["EBAY_AU"])
+    for i, (domain, currency) in enumerate(ladder):
+        price, item_id, title = _scrape_last_sold(query, condition_ids,
+                                                  domain, currency)
+        if price is not None:
+            return price, item_id, title, i > 0
+    return None, None, None, False
 
 
 def _fetch_item_specifics(item_id, headers):
@@ -323,13 +401,27 @@ def fetch_listing_row(barcode, token, marketplace=None):
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
     lowest_used, used_item_id, used_title = _search_condition(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
+    # nothing on sale in AU -> the SAME barcode search, worldwide (UK/US),
+    # AUD-converted delivered prices (postage to AU included)
+    ww_new = ww_used = False
+    if lowest_new is None:
+        lowest_new, wn_id, wn_title = _worldwide_lowest(
+            barcode, NEW_CONDITIONS, token, by_gtin=True)
+        new_item_id, new_title = new_item_id or wn_id, new_title or wn_title
+        ww_new = lowest_new is not None
+    if lowest_used is None:
+        lowest_used, wu_id, wu_title = _worldwide_lowest(
+            barcode, USED_CONDITIONS, token, by_gtin=True)
+        used_item_id, used_title = used_item_id or wu_id, used_title or wu_title
+        ww_used = lowest_used is not None
+
     # what did it LAST SELL for? — fetched for every disc (new discs get the
     # new-condition sale, used discs the used-condition sale; server.py keeps
     # only the condition the disc is actually sold as)
-    sold_new, sn_id, sn_title = _last_sold(
+    sold_new, sn_id, sn_title, sold_new_ww = _last_sold(
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
     new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
-    sold_used, su_id, su_title = _last_sold(
+    sold_used, su_id, su_title, sold_used_ww = _last_sold(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
     used_item_id, used_title = used_item_id or su_id, used_title or su_title
     if lowest_new is None and lowest_used is None and             sold_new is None and sold_used is None:
@@ -355,10 +447,16 @@ def fetch_listing_row(barcode, token, marketplace=None):
             title_new = title_used = None
         lowest_new = _guarded_min(lowest_new, title_new)
         lowest_used = _guarded_min(lowest_used, title_used)
+        if lowest_new is None:
+            lowest_new, _, _ = _worldwide_lowest(q, NEW_CONDITIONS, token)
+            ww_new = lowest_new is not None
+        if lowest_used is None:
+            lowest_used, _, _ = _worldwide_lowest(q, USED_CONDITIONS, token)
+            ww_used = lowest_used is not None
         if lowest_new is None and sold_new is None:
-            sold_new, _, _ = _last_sold(q, NEW_CONDITIONS, headers)
+            sold_new, _, _, sold_new_ww = _last_sold(q, NEW_CONDITIONS, headers)
         if lowest_used is None and sold_used is None:
-            sold_used, _, _ = _last_sold(q, USED_CONDITIONS, headers)
+            sold_used, _, _, sold_used_ww = _last_sold(q, USED_CONDITIONS, headers)
 
     slug = slugify_title(title, fallback=barcode)
     return {
@@ -381,6 +479,8 @@ def fetch_listing_row(barcode, token, marketplace=None):
         "_lowest_used": round(lowest_used, 2) if lowest_used is not None else None,
         "_sold_new": round(sold_new, 2) if sold_new is not None else None,
         "_sold_used": round(sold_used, 2) if sold_used is not None else None,
+        "_ww_new": ww_new, "_ww_used": ww_used,
+        "_sold_ww_new": sold_new_ww, "_sold_ww_used": sold_used_ww,
     }
 
 

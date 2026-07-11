@@ -402,7 +402,9 @@ function renderFenceCards(rows) {
         `<div class="score-small"><span class="label">LAST SOLD ${label}</span>${sold}</div>` +
       `</div>` +
       `<div class="score-move">` +
-        `<span class="move-tag">YOUR MOVE · 10% UNDER${usingSold ? " LAST SALE" : ""}</span>` +
+        `<span class="move-tag">YOUR MOVE · 10% UNDER${usingSold ? " LAST SALE" : ""}` +
+          `${row["Price Source"] && row["Price Source"] !== "AU listing"
+              ? ` · ${esc(row["Price Source"].toUpperCase())}` : ""}</span>` +
         `<div class="move-prices">` +
           `<div class="move-big"><span class="label">LIST ${label} AT</span>${mine}</div>` +
         `</div>` +

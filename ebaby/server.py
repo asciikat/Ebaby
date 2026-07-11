@@ -368,12 +368,22 @@ def ebay_run(name: str):
         row["Condition"] = "New" if stock == "new" else "Used"
         lowest = row.pop("_lowest_new" if stock == "new" else "_lowest_used", None)
         sold = row.pop("_sold_new" if stock == "new" else "_sold_used", None)
-        for k in ("_lowest_new", "_lowest_used", "_sold_new", "_sold_used"):
+        ww = row.pop("_ww_new" if stock == "new" else "_ww_used", False)
+        sold_ww = row.pop("_sold_ww_new" if stock == "new" else "_sold_ww_used", False)
+        for k in ("_lowest_new", "_lowest_used", "_sold_new", "_sold_used",
+                  "_ww_new", "_ww_used", "_sold_ww_new", "_sold_ww_used"):
             row.pop(k, None)
         row["Lowest Price (AUD)"] = lowest if lowest is not None else ""
         row["Last Sold (AUD)"] = sold if sold is not None else ""
         # nothing on sale right now -> undercut what it last sold for
         row["Your Price (AUD)"] = ebay._undercut(lowest if lowest is not None else sold)
+        # where the money number came from — shown on the card + in the CSV
+        if lowest is not None:
+            row["Price Source"] = "Worldwide listing" if ww else "AU listing"
+        elif sold is not None:
+            row["Price Source"] = "Last sold worldwide" if sold_ww else "Last sold AU"
+        else:
+            row["Price Source"] = ""
 
     barcode_to_title = {r["Barcode"]: r.get("Title", "") for r in rows if "Barcode" in r}
     key_to_title = {k: barcode_to_title.get(v, "") for k, v in barcodes.items()}

@@ -8,9 +8,10 @@ from ebaby.stages import ebay
 
 @pytest.fixture(autouse=True)
 def _no_network_scrape(monkeypatch):
-    """The sold-page scraper must NEVER hit the real eBay from a test — the
-    one test that covers it patches _scrape_last_sold explicitly."""
+    """Tests must NEVER hit the real eBay or the rates API — the tests that
+    cover the scraper/rates patch them explicitly."""
     monkeypatch.setattr(ebay, "_SCRAPE_AVAILABLE", False)
+    monkeypatch.setattr(ebay, "_RATES", {"GBP": 2.0, "USD": 1.5})
 
 
 def _resp(json_body, status=200):
@@ -455,3 +456,33 @@ def test_sold_page_scrape_backs_up_insights(mock_get, mock_scrape):
     assert row is not None
     assert row["_sold_new"] == 6.50 and row["_sold_used"] == 6.50
     ebay._INSIGHTS_AVAILABLE = True
+
+
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_worldwide_listing_fills_in_when_au_is_empty(mock_get):
+    """AU has nothing on sale -> the UK listing (GBP, postage to AU quoted)
+    wins, converted to AUD: (9.99 + 2.50) * 2.0 = 24.98."""
+    ebay._INSIGHTS_AVAILABLE = True
+
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
+        if "item_summary/search" in url:
+            if headers.get("X-EBAY-C-MARKETPLACE-ID") == "EBAY_GB":
+                return _resp({"itemSummaries": [
+                    {"itemId": "UK1", "title": "The Who From the Bush DVD",
+                     "price": {"value": "9.99", "currency": "GBP"},
+                     "shippingOptions": [{"shippingCost": {"value": "2.50",
+                                                           "currency": "GBP"}}]},
+                ]})
+            return _resp({"itemSummaries": []})   # AU + US empty
+        if "/item/" in url:
+            return _resp({"title": "The Who From the Bush DVD",
+                          "localizedAspects": []})
+        raise AssertionError(f"unexpected url {url}")
+
+    mock_get.side_effect = side_effect
+    row = ebay.fetch_listing_row("5021456189472", "tok")
+    assert row is not None
+    assert row["_lowest_new"] == 24.98 and row["_ww_new"] is True
+    assert row["Title"] == "The Who From the Bush DVD"
