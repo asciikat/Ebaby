@@ -59,7 +59,7 @@ function setRail(stage) {
 const AUDIO = {
   muted: localStorage.getItem("ebaby-muted") === "1",
   bgm: null,    // victory loop — only on a win
-  intro: null,  // menu music — only on the opening screen
+  job: null,    // work loop — only while the job runs
   _loop(key, file, vol) {
     if (this.muted) return;
     if (!this[key]) {
@@ -69,9 +69,9 @@ const AUDIO = {
     }
     this[key].play().catch(() => {});  // browsers may block until a user gesture
   },
-  startBgm() { this.stopIntro(); this._loop("bgm", "theme-loop.mp3", 0.22); },
-  startIntro() { if (this.bgm) this.bgm.pause(); this._loop("intro", "intro-loop.mp3", 0.16); },
-  stopIntro() { if (this.intro) this.intro.pause(); },
+  startBgm() { this.stopJob(); this._loop("bgm", "theme-loop.mp3", 0.22); },
+  startJob() { if (this.bgm) this.bgm.pause(); this._loop("job", "job-loop.mp3", 0.18); },
+  stopJob() { if (this.job) this.job.pause(); },
   stab(name) {
     if (this.muted) return;
     const a = new Audio(`/sounds/${name}.mp3`);
@@ -83,8 +83,8 @@ const AUDIO = {
     localStorage.setItem("ebaby-muted", this.muted ? "1" : "0");
     if (this.muted) {
       if (this.bgm) this.bgm.pause();
-      if (this.intro) this.intro.pause();
-    } else if (!$("#screen-upload").hidden) this.startIntro();
+      if (this.job) this.job.pause();
+    } else if (!$("#screen-progress").hidden) this.startJob();
     else if (!$("#screen-crop").hidden) this.startBgm();
     $("#btn-sound").innerHTML = this.muted ? "&#128263;" : "&#128266;";
   },
@@ -92,14 +92,6 @@ const AUDIO = {
 
 $("#btn-sound").addEventListener("click", () => AUDIO.toggle());
 if (AUDIO.muted) $("#btn-sound").innerHTML = "&#128263;";
-
-// Menu music from the jump. Autoplay is usually blocked until the user
-// touches the page, so also arm a one-shot: first click/keypress starts it
-// (skipped if the job has already moved past the opening screen).
-AUDIO.startIntro();
-document.addEventListener("pointerdown", () => {
-  if (!$("#screen-upload").hidden && (!AUDIO.intro || AUDIO.intro.paused)) AUDIO.startIntro();
-}, { once: true });
 
 function show(id) {
   for (const el of document.querySelectorAll("section[id^='screen-']")) {
@@ -203,9 +195,9 @@ for (const zone of ["used", "new"]) {
 function busted(err) {
   AUDIO.stab("siren-busted");
   if (AUDIO.bgm) AUDIO.bgm.pause();
+  AUDIO.stopJob();
   // straight back to the opening screen — photos stay picked, ready to re-run
   show("screen-upload");
-  setTimeout(() => { if (!$("#screen-upload").hidden) AUDIO.startIntro(); }, 2500);
   $("#upload-error").textContent = `BUSTED — ${err.message}`;
   $("#btn-start").disabled = false;
 }
@@ -219,7 +211,7 @@ $("#btn-start").addEventListener("click", () => {
   const btn = $("#btn-start");
   if (btn.disabled) return;
   btn.disabled = true; // double-click = two batches
-  AUDIO.stopIntro(); // menu music out, the job runs in silence
+  AUDIO.startJob(); // the work loop rides along while the job grinds
   $("#upload-error").textContent = "";
   runJob().catch(busted);
 });
