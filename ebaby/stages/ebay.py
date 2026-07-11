@@ -254,16 +254,15 @@ def fetch_listing_row(barcode, token, marketplace=None):
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
     lowest_used, used_item_id, used_title = _search_condition(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
-    # nothing on sale right now -> what did it LAST SELL for?
-    sold_new = sold_used = None
-    if lowest_new is None:
-        sold_new, sn_id, sn_title = _search_last_sold(
-            barcode, NEW_CONDITIONS, headers, by_gtin=True)
-        new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
-    if lowest_used is None:
-        sold_used, su_id, su_title = _search_last_sold(
-            barcode, USED_CONDITIONS, headers, by_gtin=True)
-        used_item_id, used_title = used_item_id or su_id, used_title or su_title
+    # what did it LAST SELL for? — fetched for every disc (new discs get the
+    # new-condition sale, used discs the used-condition sale; server.py keeps
+    # only the condition the disc is actually sold as)
+    sold_new, sn_id, sn_title = _search_last_sold(
+        barcode, NEW_CONDITIONS, headers, by_gtin=True)
+    new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
+    sold_used, su_id, su_title = _search_last_sold(
+        barcode, USED_CONDITIONS, headers, by_gtin=True)
+    used_item_id, used_title = used_item_id or su_id, used_title or su_title
     if lowest_new is None and lowest_used is None and             sold_new is None and sold_used is None:
         return None
 

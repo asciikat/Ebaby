@@ -398,9 +398,8 @@ function renderFenceCards(rows) {
           `Hit FIX: correct the title if it's off, or name your own price.</div>` : "") +
       `<div class="score-prices">` +
         `<button class="fix-btn" data-fix="${esc(row["Image Set Name"] || "")}" title="Wrong disc? Fix the title / price">✎ FIX</button>` +
-        (usingSold
-          ? `<div class="score-small"><span class="label">LAST SOLD ${label}</span>${sold}</div>`
-          : `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>`) +
+        `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
+        `<div class="score-small"><span class="label">LAST SOLD ${label}</span>${sold}</div>` +
       `</div>` +
       `<div class="score-move">` +
         `<span class="move-tag">YOUR MOVE · 10% UNDER${usingSold ? " LAST SALE" : ""}</span>` +
