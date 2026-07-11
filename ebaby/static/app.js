@@ -42,7 +42,9 @@ function setRail(stage) {
   RAIL.forEach(([k, label, icon], i) => {
     const chip = document.createElement("span");
     const img = document.createElement("img");
-    img.src = `/img/icon-${icon}.png`;
+    // the active chip sits on amber — use the icons cut from the orange
+    // sheet there; the black-sheet cuts stay for the dark chips
+    img.src = i === idx ? `/img/icon-${icon}-on.png` : `/img/icon-${icon}.png`;
     img.alt = "";
     chip.appendChild(img);
     chip.appendChild(document.createTextNode(label));
