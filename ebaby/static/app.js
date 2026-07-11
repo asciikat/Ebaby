@@ -386,10 +386,14 @@ function renderFenceCards(rows) {
     const found = priceTag(row["Lowest Price (AUD)"]);
     const mine = priceTag(row["Your Price (AUD)"]);
     const title = row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC";
+    const noComps = found === "—";
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
       `<div class="score-title">${esc(title)}</div>` +
+      (noComps
+        ? `<div class="miss">Nobody's fencing this one on eBay — no price to undercut. ` +
+          `Hit FIX: correct the title if it's off, or name your own price.</div>` : "") +
       `<div class="score-prices">` +
         `<button class="fix-btn" data-fix="${esc(row["Image Set Name"] || "")}" title="Wrong disc? Fix the title / price">✎ FIX</button>` +
         `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
