@@ -153,14 +153,11 @@ for (const zone of ["used", "new"]) {
 
 function busted(err) {
   AUDIO.stab("siren-busted");
-  show("screen-progress"); // the error must land on a VISIBLE screen
-  logStep("BUSTED").fail(err.message);
-  const retry = document.createElement("button");
-  retry.className = "big-btn";
-  retry.style.marginTop = "1rem";
-  retry.textContent = "BACK TO THE GARAGE";
-  retry.addEventListener("click", () => location.reload());
-  $("#screen-progress").appendChild(retry);
+  if (AUDIO.bgm) AUDIO.bgm.pause();
+  // straight back to the opening screen — photos stay picked, ready to re-run
+  show("screen-upload");
+  $("#upload-error").textContent = `BUSTED — ${err.message}`;
+  $("#btn-start").disabled = false;
 }
 
 function checked(r, what) {
@@ -173,7 +170,7 @@ $("#btn-start").addEventListener("click", () => {
   if (btn.disabled) return;
   btn.disabled = true; // double-click = two batches
   AUDIO.stab("stab-start");
-  AUDIO.startBgm();
+  $("#upload-error").textContent = "";
   runJob().catch(busted);
 });
 
@@ -314,6 +311,7 @@ async function finishJob() {
   renderEbayPanel(e);
   renderCropGrid();
   AUDIO.stab("cash-register"); // the fence's prices hit the screen
+  AUDIO.startBgm();            // job approved — the G-funk only plays on a win
   show("screen-crop");
 }
 
