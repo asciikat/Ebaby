@@ -7,6 +7,7 @@ instead of a stack trace and let the user choose retry-or-continue.
 """
 import base64
 import csv
+import re
 import time
 import urllib.parse
 
@@ -209,6 +210,74 @@ def _search_last_sold(query, condition_ids, headers, by_gtin=False):
     return best[1], best[2], best[3]
 
 
+# Fallback #2: the public sold-listings SEARCH PAGE. Plain requests get 403
+# (TLS fingerprint check), but curl_cffi impersonating Chrome + a homepage
+# warm-up (cookies) reads it fine. Best-effort: any hiccup returns nothing.
+_SCRAPE_SESSION = None
+_SCRAPE_AVAILABLE = True
+_SCRAPE_DOMAINS = {"EBAY_AU": "www.ebay.com.au", "EBAY_US": "www.ebay.com",
+                   "EBAY_GB": "www.ebay.co.uk"}
+
+
+def _scrape_last_sold(query, condition_ids):
+    """Most recent sold price scraped off the sold-listings search page,
+    or (None, None, None). _sop=13 sorts by end date, newest first."""
+    global _SCRAPE_SESSION, _SCRAPE_AVAILABLE
+    if not _SCRAPE_AVAILABLE:
+        return None, None, None
+    try:
+        from curl_cffi import requests as creq
+    except ImportError:
+        _SCRAPE_AVAILABLE = False       # not installed — stay quiet for the run
+        return None, None, None
+    domain = _SCRAPE_DOMAINS.get(cfg.EBAY_MARKETPLACE_ID, "www.ebay.com")
+    try:
+        if _SCRAPE_SESSION is None:
+            sess = creq.Session(impersonate="chrome")
+            sess.get(f"https://{domain}/", timeout=30)   # cookies stop the 403
+            _SCRAPE_SESSION = sess
+        for attempt in range(2):        # eBay A/B-tests layouts; retry once
+            time.sleep(1.0)             # polite pace — hammering earns a block
+            res = _SCRAPE_SESSION.get(
+                f"https://{domain}/sch/i.html",
+                params={"_nkw": query, "LH_Sold": "1", "LH_Complete": "1",
+                        "LH_ItemCondition": condition_ids, "_sop": "13"},
+                headers={"Referer": f"https://{domain}/"}, timeout=30)
+            if res.status_code == 200:
+                text = res.text
+                # a junk query gets padded with "fewer words" suggestions —
+                # any price on THAT page belongs to a different product
+                if "No exact matches found" not in text and "0 results" not in text:
+                    # anchor on the "Sold <date>" label every real sale carries
+                    # (ad/placeholder cards have none), take the price inside
+                    # that card. _sop=13 = newest first. class attributes are
+                    # sometimes unquoted in eBay's minified HTML, so no quote
+                    # in the pattern.
+                    for dm in re.finditer(
+                            r"Sold[^A-Za-z0-9<]{0,8}\d{1,2}\s+\w{3,9}\s+\d{4}", text):
+                        seg = text[dm.end():dm.end() + 5000]
+                        pm = re.search(
+                            r"s-(?:card|item)__price[^>]*>(?:<[^>]+>)*[^0-9<]*([\d,]+\.\d{2})",
+                            seg)
+                        if pm:
+                            return float(pm.group(1).replace(",", "")), None, None
+            # parse failed — a FRESH session often lands the classic layout
+            sess = creq.Session(impersonate="chrome")
+            sess.get(f"https://{domain}/", timeout=30)
+            _SCRAPE_SESSION = sess
+        return None, None, None
+    except Exception:                    # scraping is inherently fragile —
+        return None, None, None          # never let it sink a batch
+
+
+def _last_sold(query, condition_ids, headers, by_gtin=False):
+    """Insights API first (exact product data), sold-page scrape second."""
+    price, item_id, title = _search_last_sold(query, condition_ids, headers, by_gtin)
+    if price is not None:
+        return price, item_id, title
+    return _scrape_last_sold(query, condition_ids)
+
+
 def _fetch_item_specifics(item_id, headers):
     encoded = urllib.parse.quote(item_id)
     try:
@@ -257,10 +326,10 @@ def fetch_listing_row(barcode, token, marketplace=None):
     # what did it LAST SELL for? — fetched for every disc (new discs get the
     # new-condition sale, used discs the used-condition sale; server.py keeps
     # only the condition the disc is actually sold as)
-    sold_new, sn_id, sn_title = _search_last_sold(
+    sold_new, sn_id, sn_title = _last_sold(
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
     new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
-    sold_used, su_id, su_title = _search_last_sold(
+    sold_used, su_id, su_title = _last_sold(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
     used_item_id, used_title = used_item_id or su_id, used_title or su_title
     if lowest_new is None and lowest_used is None and             sold_new is None and sold_used is None:
@@ -287,9 +356,9 @@ def fetch_listing_row(barcode, token, marketplace=None):
         lowest_new = _guarded_min(lowest_new, title_new)
         lowest_used = _guarded_min(lowest_used, title_used)
         if lowest_new is None and sold_new is None:
-            sold_new, _, _ = _search_last_sold(q, NEW_CONDITIONS, headers)
+            sold_new, _, _ = _last_sold(q, NEW_CONDITIONS, headers)
         if lowest_used is None and sold_used is None:
-            sold_used, _, _ = _search_last_sold(q, USED_CONDITIONS, headers)
+            sold_used, _, _ = _last_sold(q, USED_CONDITIONS, headers)
 
     slug = slugify_title(title, fallback=barcode)
     return {

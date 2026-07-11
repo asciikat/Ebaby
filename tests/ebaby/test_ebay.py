@@ -6,6 +6,13 @@ import requests
 from ebaby.stages import ebay
 
 
+@pytest.fixture(autouse=True)
+def _no_network_scrape(monkeypatch):
+    """The sold-page scraper must NEVER hit the real eBay from a test — the
+    one test that covers it patches _scrape_last_sold explicitly."""
+    monkeypatch.setattr(ebay, "_SCRAPE_AVAILABLE", False)
+
+
 def _resp(json_body, status=200):
     m = MagicMock()
     m.status_code = status
@@ -426,3 +433,25 @@ def test_insights_403_disables_itself_and_returns_none_row(mock_get):
     assert ebay.fetch_listing_row("5021456189472", "tok") is None
     assert ebay._INSIGHTS_AVAILABLE is False   # one 403 turns it off for the run
     ebay._INSIGHTS_AVAILABLE = True            # don't leak into other tests
+
+
+@patch("ebaby.stages.ebay._scrape_last_sold")
+@patch("ebaby.stages.ebay._SESSION.get")
+def test_sold_page_scrape_backs_up_insights(mock_get, mock_scrape):
+    """Insights refused (403) -> the sold-listings page scrape supplies the
+    last-sold price instead."""
+    ebay._INSIGHTS_AVAILABLE = True
+
+    def side_effect(url, headers=None, params=None, timeout=None):
+        if "marketplace_insights" in url:
+            return _resp({}, status=403)
+        if "item_summary/search" in url:
+            return _resp({"itemSummaries": []})
+        raise AssertionError(f"unexpected url {url}")
+
+    mock_get.side_effect = side_effect
+    mock_scrape.return_value = (6.50, None, None)
+    row = ebay.fetch_listing_row("5021456189472", "tok")
+    assert row is not None
+    assert row["_sold_new"] == 6.50 and row["_sold_used"] == 6.50
+    ebay._INSIGHTS_AVAILABLE = True
