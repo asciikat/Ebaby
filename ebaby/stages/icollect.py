@@ -11,6 +11,7 @@ The site quotes values in USD for what a typical circulating copy changes
 hands at — closest to a USED disc. A factory-sealed copy trades above that,
 so the NEW recommendation applies a premium.
 """
+import html
 import re
 import sqlite3
 from pathlib import Path
@@ -19,6 +20,11 @@ INDEX_DB = Path(__file__).resolve().parent.parent.parent / "data" / "icollect.sq
 
 USED_MULT = 1.0
 NEW_MULT = 1.5   # sealed premium over the circulating-copy estimate
+
+# Plausibility clamp, set from a 45-item random audit of the live data
+# (2026-07-12: median $14.99, p90 $39.63, max $74.98): a DVD "value" outside
+# this range is a data-entry artifact, not a price.
+MIN_USD, MAX_USD = 0.50, 200.0
 
 # Values are user-locale strings — "~$6.99" (USD) but also things like
 # "en_SE 24310" (Swedish entry, ambiguous units). Only a clean $ amount is
@@ -84,7 +90,10 @@ def fetch_value_usd(item_id):
         if res.status_code != 200:
             return None
         m = _VALUE.search(res.text)
-        return float(m.group(1).replace(",", "")) if m else None
+        if not m:
+            return None
+        value = float(m.group(1).replace(",", ""))
+        return value if MIN_USD <= value <= MAX_USD else None
     except Exception:   # enrichment must never sink the batch
         return None
 
@@ -106,7 +115,7 @@ def lookup(barcode, usd_to_aud, db_path=None):
         return None
     aud = value * usd_to_aud
     return {
-        "title": title,
+        "title": html.unescape(title),   # the index stores raw page text
         "value_aud": round(aud, 2),
         "reco_used": round(aud * USED_MULT, 2),
         "reco_new": round(aud * NEW_MULT, 2),

@@ -63,3 +63,20 @@ def test_lookup_converts_and_applies_sealed_premium(tmp_path):
 def test_lookup_without_fx_rate_stays_dark(tmp_path):
     db = _index(tmp_path, [("025391747488", 745195, "The Goonies")])
     assert icollect.lookup("025391747488", usd_to_aud=None, db_path=db) is None
+
+
+def test_implausible_values_are_rejected(tmp_path):
+    """$2,431 for a DVD is a data-entry artifact, not a price."""
+    db = _index(tmp_path, [("025391747488", 1, "Overpriced")])
+    with patch.object(icollect, "_sess") as sess:
+        sess.return_value.get.return_value.status_code = 200
+        sess.return_value.get.return_value.text = (
+            'Automatic Estimated Value:</div><div class="value">~$2,431.00</div>')
+        assert icollect.fetch_value_usd(1) is None
+
+
+def test_titles_lose_their_html_entities(tmp_path):
+    db = _index(tmp_path, [("025391747488", 1, "Hansel &amp; Gretel")])
+    with patch.object(icollect, "fetch_value_usd", return_value=5.0):
+        info = icollect.lookup("025391747488", usd_to_aud=1.0, db_path=db)
+    assert info["title"] == "Hansel & Gretel"
