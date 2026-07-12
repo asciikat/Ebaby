@@ -9,3 +9,4 @@ Images in/
 *.dng
 !samples/*.dng
 .env
+data/

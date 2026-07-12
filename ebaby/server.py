@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import cv2
 
 from ebaby import batch, naming_utils
-from ebaby.stages import barcode_decode, barcode_locate, color, crop, ebay
+from ebaby.stages import barcode_decode, barcode_locate, color, crop, ebay, icollect
 from ebaby.stages import rename_seq, rename_title
 
 app = FastAPI(title="Ebaby")
@@ -408,6 +408,10 @@ def ebay_run(name: str):
     # selling this disc as new OR used, so the other copy's price is just
     # noise. rows come back in barcodes-dict order; a barcode sold in BOTH
     # zones keeps its own label.
+    try:
+        _usd_rate = ebay._aud_rate("USD")
+    except Exception:
+        _usd_rate = None
     for (key, _bc), row in zip(barcodes.items(), rows):
         stock = "new" if key.isdigit() else "used"
         row["Stock"] = stock
@@ -422,12 +426,27 @@ def ebay_run(name: str):
         row["Lowest Price (AUD)"] = lowest if lowest is not None else ""
         row["Last Sold (AUD)"] = sold if sold is not None else ""
         # nothing on sale right now -> undercut what it last sold for
-        row["Your Price (AUD)"] = ebay._undercut(lowest if lowest is not None else sold)
+        # collector's price guide — one local index hit + one page fetch per
+        # matched disc; per-condition (sealed premium on NEW). Dark until the
+        # index is built (tools/build_icollect_index.py).
+        ic_reco = None
+        if row.get("Barcode"):
+            try:
+                info = icollect.lookup(row["Barcode"], _usd_rate)
+            except Exception:
+                info = None
+            if info:
+                ic_reco = info["reco_new"] if stock == "new" else info["reco_used"]
+                row["iCollect Reco (AUD)"] = ic_reco
+        basis = lowest if lowest is not None else (sold if sold is not None else ic_reco)
+        row["Your Price (AUD)"] = ebay._undercut(basis)
         # where the money number came from — shown on the card + in the CSV
         if lowest is not None:
             row["Price Source"] = "Worldwide listing" if ww else "AU listing"
         elif sold is not None:
             row["Price Source"] = "Last sold worldwide" if sold_ww else "Last sold AU"
+        elif ic_reco is not None:
+            row["Price Source"] = "iCollect price guide"
         else:
             row["Price Source"] = ""
 

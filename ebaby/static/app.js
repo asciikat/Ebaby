@@ -388,8 +388,9 @@ function renderFenceCards(rows) {
     const sold = priceTag(row["Last Sold (AUD)"]);
     const mine = priceTag(row["Your Price (AUD)"]);
     const title = row.Title || row["Image Set Name"] || row.Barcode || "UNKNOWN DISC";
+    const ic = priceTag(row["iCollect Reco (AUD)"]);
     const usingSold = found === "—" && sold !== "—";
-    const noComps = found === "—" && sold === "—";
+    const noComps = found === "—" && sold === "—" && ic === "—";
     const card = document.createElement("div");
     card.className = "score-card";
     card.innerHTML =
@@ -401,6 +402,8 @@ function renderFenceCards(rows) {
         `<button class="fix-btn" data-fix="${esc(row["Image Set Name"] || "")}" title="Wrong disc? Fix the title / price">✎ FIX</button>` +
         `<div class="score-small"><span class="label">LOWEST ${label}</span>${found}</div>` +
         `<div class="score-small"><span class="label">LAST SOLD ${label}</span>${sold}</div>` +
+        (ic !== "—"
+          ? `<div class="score-small"><span class="label">ICOLLECT RECO ${label}</span>${ic}</div>` : "") +
       `</div>` +
       `<div class="score-move">` +
         `<span class="move-tag">YOUR MOVE · 10% UNDER${usingSold ? " LAST SALE" : ""}` +

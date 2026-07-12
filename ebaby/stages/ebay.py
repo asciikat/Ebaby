@@ -29,7 +29,8 @@ USED_CONDITIONS = "3000|4000|5000|6000"
 CSV_HEADERS = [
     "Barcode", "Image Set Name", "Title", "Condition", "Region Code", "Genre",
     "Type", "Season", "Actor", "Studio", "Language", "Rating",
-    "Lowest Price (AUD)", "Last Sold (AUD)", "Price Source", "Your Price (AUD)",
+    "Lowest Price (AUD)", "Last Sold (AUD)", "iCollect Reco (AUD)",
+    "Price Source", "Your Price (AUD)",
 ]
 
 # Columns written even when every row in the batch is blank for them — the

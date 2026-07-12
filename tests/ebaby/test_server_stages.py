@@ -13,6 +13,9 @@ from ebaby import batch, server
 @pytest.fixture(autouse=True)
 def isolated_root(tmp_path, monkeypatch):
     monkeypatch.setattr(batch, "BATCHES_ROOT", tmp_path / "Ebaby Runs")
+    # keep every test off the network: no live FX rate, no iCollect lookups
+    monkeypatch.setattr(server.ebay, "_aud_rate", lambda c: None)
+    monkeypatch.setattr(server.icollect, "lookup", lambda *a, **k: None)
     return tmp_path
 
 
@@ -651,3 +654,32 @@ def test_quit_status_starts_false_and_flips_after_request(client):
         assert client.get("/api/quit-status").json()["quit"] is True
     finally:
         server._QUIT_REQUESTED.clear()
+
+
+@patch("ebaby.server.ebay.write_csv")
+@patch("ebaby.server.ebay.fetch_all")
+@patch("ebaby.server.ebay.get_token", return_value="tok")
+def test_icollect_reco_fills_the_card_and_prices_a_compless_disc(
+        mock_token, mock_fetch, mock_write, client, tmp_path, monkeypatch):
+    """No eBay comps at all -> the iCollect price guide supplies the reco AND
+    becomes the Your Price basis, condition-matched (sealed premium on new)."""
+    d = _make_batch_at_stage(client, tmp_path, "ebay")
+    state = batch.read_state(d)
+    state["barcodes"] = {"01": "4006381333931"}   # numeric key = NEW stock
+    batch.write_state(d, state)
+    mock_fetch.return_value = [{"Barcode": "4006381333931",
+                                "Image Set Name": "obscurity",
+                                "Title": "Obscurity"}]  # no _lowest/_sold
+    monkeypatch.setattr(server.ebay, "_aud_rate", lambda c: 1.5)
+    monkeypatch.setattr(server.icollect, "lookup",
+                        lambda bc, rate, **k: {"title": "Obscurity",
+                                               "value_aud": 10.0,
+                                               "reco_used": 10.0,
+                                               "reco_new": 15.0,
+                                               "url": "x"})
+    resp = client.post("/api/batches/run1/ebay/run")
+    assert resp.status_code == 200
+    row = resp.json()["rows"][0]
+    assert row["iCollect Reco (AUD)"] == 15.0          # NEW -> sealed premium
+    assert row["Price Source"] == "iCollect price guide"
+    assert row["Your Price (AUD)"] == server.ebay._undercut(15.0)
