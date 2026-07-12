@@ -139,11 +139,18 @@ def _aud_rate(currency):
     return _RATES.get(currency) or _RATE_FALLBACK.get(currency)
 
 
+def _auth_headers(token, marketplace=None):
+    return {"Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace or cfg.EBAY_MARKETPLACE_ID,
+            "Content-Type": "application/json"}
+
+
 def _delivered_price(item):
-    """(total, has_postage): total is price + CHEAPEST quoted postage when the
-    seller quotes postage, or the bare price when they don't. None when the
-    item has no usable price at all (never default a missing price to $0 —
-    that fabricates bargains)."""
+    """(total, has_postage, currency): total is price + CHEAPEST quoted
+    postage when the seller quotes postage, or the bare price when they
+    don't; currency is the listing's currency code. None when the item has
+    no usable price at all (never default a missing price to $0 — that
+    fabricates bargains)."""
     try:
         price = float(item["price"]["value"])
     except (KeyError, TypeError, ValueError):
@@ -219,9 +226,7 @@ def _worldwide_lowest(query, condition_ids, token, by_gtin=False):
     marketplaces, or (None, None, None)."""
     best = (None, None, None)
     for mp in _WORLDWIDE_MARKETPLACES:
-        headers = {"Authorization": f"Bearer {token}",
-                   "X-EBAY-C-MARKETPLACE-ID": mp,
-                   "Content-Type": "application/json"}
+        headers = _auth_headers(token, mp)
         try:
             price, item_id, title = _search_condition(
                 query, condition_ids, headers, by_gtin=by_gtin, to_aud=True)
@@ -385,7 +390,7 @@ def _guarded_min(barcode_price, title_price, floor_ratio=0.3):
     return min(barcode_price, title_price)
 
 
-def fetch_listing_row(barcode, token, marketplace=None):
+def fetch_listing_row(barcode, token):
     """One CSV row (dict, CSV_HEADERS keys) or None if nothing found on
     either New or Used condition search.
 
@@ -393,9 +398,7 @@ def fetch_listing_row(barcode, token, marketplace=None):
     (many sellers never enter the barcode, so barcode-only search misses
     their — often cheaper — listings). The lowest delivered price across
     both searches wins; the same postage rules apply to each."""
-    marketplace = marketplace or cfg.EBAY_MARKETPLACE_ID
-    headers = {"Authorization": f"Bearer {token}", "X-EBAY-C-MARKETPLACE-ID": marketplace,
-               "Content-Type": "application/json"}
+    headers = _auth_headers(token)
 
     lowest_new, new_item_id, new_title = _search_condition(
         barcode, NEW_CONDITIONS, headers, by_gtin=True)
@@ -424,7 +427,8 @@ def fetch_listing_row(barcode, token, marketplace=None):
     sold_used, su_id, su_title, sold_used_ww = _last_sold(
         barcode, USED_CONDITIONS, headers, by_gtin=True)
     used_item_id, used_title = used_item_id or su_id, used_title or su_title
-    if lowest_new is None and lowest_used is None and             sold_new is None and sold_used is None:
+    if (lowest_new is None and lowest_used is None
+            and sold_new is None and sold_used is None):
         return None
 
     specifics_item_id = new_item_id or used_item_id
@@ -445,8 +449,15 @@ def fetch_listing_row(barcode, token, marketplace=None):
             title_used, _, _ = _search_condition(q, USED_CONDITIONS, headers)
         except EbayUnavailable:
             title_new = title_used = None
+        pre_new, pre_used = lowest_new, lowest_used
         lowest_new = _guarded_min(lowest_new, title_new)
         lowest_used = _guarded_min(lowest_used, title_used)
+        # if the AU title search beat a worldwide barcode price, the winning
+        # comp is domestic — the Price Source label must say so
+        if lowest_new != pre_new:
+            ww_new = False
+        if lowest_used != pre_used:
+            ww_used = False
         if lowest_new is None:
             lowest_new, _, _ = _worldwide_lowest(q, NEW_CONDITIONS, token)
             ww_new = lowest_new is not None
@@ -470,7 +481,7 @@ def fetch_listing_row(barcode, token, marketplace=None):
         "Actor": aspects.get("actor", aspects.get("cast", "")),
         "Studio": aspects.get("studio", ""),
         "Language": aspects.get("language", ""),
-        "Rating": aspects.get("rating", aspects.get("movie/tv title", "")),
+        "Rating": aspects.get("rating", ""),
         # not real CSV columns (extrasaction="ignore" drops them on write) —
         # the caller doesn't yet know if THIS barcode is the new or used copy,
         # so both lowest prices are carried until server.py picks the one

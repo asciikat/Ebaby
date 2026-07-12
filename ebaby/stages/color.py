@@ -11,7 +11,9 @@ Pipeline per photo:
   3. lift the whole frame so the paper reads bright white, with a soft
      highlight roll-off so glossy specular reflections compress toward white
      instead of clipping to a flat blob;
-  4. pop: gentle S-curve contrast, VIBRANCE (protects already-saturated cover
+  4. midtone gamma lift — opens up dark cover art without washing out the
+     paper or greying the blacks;
+  5. pop: gentle S-curve contrast, VIBRANCE (protects already-saturated cover
      colours instead of a flat saturation multiply that shifts hues), and a
      small-radius threshold-gated unsharp that crisps text without haloing the
      case edge or amplifying paper noise.

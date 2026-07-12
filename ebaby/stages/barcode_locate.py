@@ -1,5 +1,6 @@
-"""Locate the barcode on a back-cover photo and save a tight crop of just
-that region — ported from locate_and_crop_barcodes.py.
+"""Locate the barcode on a case photo (back cover first, but the caller may
+try any shot of the set) and save a tight crop of just that region — ported
+from locate_and_crop_barcodes.py.
 
 For .NEF/.DNG this pulls the embedded full-res JPEG preview via exiftool
 (fast, avoids a full RAW decode). Falls back to reading the file directly
@@ -81,13 +82,13 @@ def downscale_if_needed(img, max_dim=MAX_DIM):
     return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
 
-def locate_and_crop(back_photo_path, out_path) -> bool:
+def locate_and_crop(photo_path, out_path) -> bool:
     """Save a tight barcode crop (or full-frame fallback) to out_path.
     Returns True if a confident crop was made, False if it fell back to the
     whole frame."""
-    img = load_image(back_photo_path)
+    img = load_image(photo_path)
     if img is None:
-        raise ValueError(f"could not read image: {back_photo_path}")
+        raise ValueError(f"could not read image: {photo_path}")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     box = locate_barcode_crop(gray)
     out_path.parent.mkdir(parents=True, exist_ok=True)

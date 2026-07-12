@@ -1,11 +1,5 @@
 /* EBABY — GTA-style skin: Vice City neon on GTA V charcoal. */
 @font-face {
-  /* Pricedown kept ONLY for the logo — it's the GTA logo font but unreadable at size */
-  font-family: "Pricedown";
-  src: url("/fonts/pricedown-bl.otf") format("opentype");
-  font-display: swap;
-}
-@font-face {
   /* Bebas Neue: the GTA V poster look, actually readable */
   font-family: "Bebas Neue";
   src: url("/fonts/bebas-neue.ttf") format("truetype");
@@ -22,7 +16,6 @@
   --cyan: #29d9f6;
   --amber: #f6a821;
   --red: #e03b3b;
-  --logo: "Pricedown", "Bebas Neue", Impact, sans-serif;
   --headline: "Bebas Neue", Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 }
 
@@ -43,15 +36,6 @@ body {
 }
 
 header { text-align: center; margin-bottom: 2rem; position: relative; }
-.logo {
-  font-family: var(--logo);
-  font-size: 6rem;
-  margin: 0;
-  letter-spacing: .05em;
-  color: var(--pink);
-  text-shadow: 5px 5px 0 #000, 0 0 40px rgba(255, 46, 196, .55);
-  transform: skewX(-6deg);
-}
 .logo-img {
   display: block;
   margin: 0 auto .3rem;
@@ -224,7 +208,6 @@ td input {
   padding: .8rem 1rem;
   margin: 1rem 0;
 }
-.panel code { color: var(--cyan); font-size: 1.05rem; }
 
 /* fence valuation cards */
 .score-card {
@@ -250,13 +233,6 @@ td input {
   flex: 1 1 300px;
 }
 .score-prices { text-align: right; }
-.score-big {
-  font-family: var(--headline);
-  font-size: 4.2rem;
-  color: var(--green);
-  text-shadow: 3px 3px 0 #000, 0 0 25px rgba(158, 199, 36, .4);
-  white-space: nowrap;
-}
 .score-small {
   font-family: var(--headline);
   font-size: 1.7rem;
@@ -300,12 +276,6 @@ td input {
   font-size: 3.6rem;
   color: var(--amber);
   text-shadow: 3px 3px 0 #000, 0 0 22px rgba(246, 168, 33, .4);
-  white-space: nowrap;
-}
-.move-small {
-  font-family: var(--headline);
-  font-size: 1.5rem;
-  color: var(--dim);
   white-space: nowrap;
 }
 .move-prices .label {
@@ -475,7 +445,6 @@ canvas {
 @keyframes wheelspin { to { transform: rotate(360deg); } }
 
 .evidence { max-width: 260px; max-height: 90px; border-radius: 4px; border: 1px solid #333; }
-#resume-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-left-color: var(--amber); }
 
 /* "Accept Hustle?" — the final, irreversible cleanup */
 .danger-btn {

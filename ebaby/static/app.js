@@ -263,7 +263,7 @@ async function runJob() {
   await runFromColor();
 }
 
-/* the automated chain from colour onward — also the resume entry point */
+/* the automated chain from colour onward */
 async function runFromColor() {
   show("screen-progress");
   setRail("color");
@@ -452,7 +452,6 @@ function renderEbayPanel(e) {
    (and list price); the server re-slugs, renames the photos, and rewrites the
    CSV + listing text to match. */
 function openFenceEdit(card, row) {
-  card.classList.add("editing");
   card.innerHTML =
     `<div class="fix-form">` +
       `<label class="fix-field">TITLE<input class="fix-title" type="text"></label>` +
