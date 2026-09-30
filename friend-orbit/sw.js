@@ -1,6 +1,6 @@
 // Friend Orbit offline support. Bump VERSION whenever any app file changes
 // so installed copies pick up the new version on their next launch.
-const VERSION = 'friend-orbit-v3';
+const VERSION = 'friend-orbit-v4';
 const FONTS = 'friend-orbit-fonts';
 const SHELL = [
   './',
