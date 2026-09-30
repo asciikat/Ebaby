@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A calm, shame-free friends list. Everyone orbits you, drifts slowly, and never falls out of your sky.">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9eef7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1026">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Friend Orbit">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Friend Orbit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,6 +364,11 @@ body:not(.hardday) .only-hard{display:none!important}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+</style>
+<style>
+/* App shell: keep content clear of notches and system bars when installed. */
+html{background:var(--sky)}
+:root{padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
 </style>
 </head>
 <body>
@@ -765,8 +781,11 @@ function edit(id, fn, opts){ const f = state.friends.get(id); if (!f) return nul
 const renderSoon = debounce(() => renderAll(), 250);
 
 async function boot(){
+  const hash = location.hash.slice(1);
+  if (hash === 'hard-day'){ state.hardDay = true; prefs.hardDay = true; savePrefs(); }
   applyHardDay();
   renderAll();
+  if (hash === 'add') setTimeout(() => $('#add-name').focus(), 60);
   const c = window.claude;
   if (!c || typeof c.use !== 'function'){ startLocal(''); return; }
   c.use('sample').then(s => { state.sample = s; if (state.openId) renderDrafts(); }).catch(() => {});
@@ -779,7 +798,10 @@ async function boot(){
   if (owner === false){ startLocal('This orbit is private to the person who made it, so yours is kept in this browser.'); return; }
   startDb(db);
 }
-function startLocal(note){ Store.mode = 'local'; Store.note = note; Store.loadLocal(); renderAll(); }
+function startLocal(note){
+  Store.mode = 'local'; Store.note = note; Store.loadLocal(); renderAll();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+}
 function startDb(db){
   Store.mode = 'db'; Store.db = db;
   const wait = setTimeout(() => { if (!Store.gotFirst){ Store.gotFirst = true; renderAll(); } }, 6000);
@@ -1741,6 +1763,14 @@ async function backup(){
     catch (e) { if (e && e.code === 'declined'){ toast('No backup saved. That is fine.'); return; } }
   }
   if (!window.claude){
+    try {
+      const file = new File([data], filename, {type: 'application/json'});
+      if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({files: [file]})){
+        await navigator.share({files: [file], title: 'Friend Orbit backup'});
+        toast('Backup shared. Keep it somewhere safe.');
+        return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError'){ toast('No backup saved. That is fine.'); return; } }
     const url = URL.createObjectURL(new Blob([data], {type: 'application/json'}));
     const a = document.createElement('a'); a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
@@ -1949,6 +1979,41 @@ setInterval(renderAll, 10 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) renderAll(); });
 
 boot();
+})();
+</script>
+<script>
+/* App shell: offline support and the install button. */
+(() => {
+  const secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if ('serviceWorker' in navigator && secure){
+    window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+  }
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  let deferred = null;
+  function showInstall(){
+    const row = document.querySelector('.foot-row .row');
+    if (!row || document.getElementById('install-btn')) return;
+    const b = document.createElement('button');
+    b.id = 'install-btn'; b.type = 'button'; b.className = 'btn small primary';
+    b.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-down"/></svg> Install app';
+    b.addEventListener('click', async () => {
+      if (!deferred) return;
+      deferred.prompt();
+      try { await deferred.userChoice; } catch (e) {}
+      deferred = null; b.remove();
+    });
+    row.prepend(b);
+  }
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; showInstall(); });
+  window.addEventListener('appinstalled', () => { const b = document.getElementById('install-btn'); if (b) b.remove(); });
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && !standalone && secure){
+    const p = document.createElement('p');
+    p.className = 'fine';
+    p.textContent = 'To install on iPhone or iPad: tap the Share button, then Add to Home Screen.';
+    const foot = document.querySelector('.foot');
+    if (foot) foot.insertBefore(p, foot.children[1] || null);
+  }
 })();
 </script>
 </body>

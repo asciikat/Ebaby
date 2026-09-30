@@ -1,0 +1,22 @@
+{
+  "name": "Friend Orbit",
+  "short_name": "Friend Orbit",
+  "description": "A calm, shame-free friends list. Everyone orbits you, drifts slowly, and never falls out of your sky.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1026",
+  "theme_color": "#0b1026",
+  "categories": ["lifestyle", "health", "social"],
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ],
+  "shortcuts": [
+    {"name": "Hard day mode", "short_name": "Hard day", "url": "./#hard-day", "icons": [{"src": "icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Add someone", "short_name": "Add", "url": "./#add", "icons": [{"src": "icons/icon-192.png", "sizes": "192x192"}]}
+  ]
+}
