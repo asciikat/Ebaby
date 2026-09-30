@@ -1,0 +1,1955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Friend Orbit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
+<style>
+/* Layout: the orbit map is the hero, one gentle nudge and the spark jar sit beside it,
+   your people are listed below, and each person opens as a side sheet (a bottom sheet on phones). */
+:root{
+  --sky:#e9eef7; --sky-deep:#d8e0ef; --panel:#f7f9fd; --panel-2:#eef2fa;
+  --ink:#1a2142; --ink-2:#48527a; --ink-3:#687191; --line:#c3cce2; --line-soft:#dbe1ee;
+  --sun:#e8982a; --sun-ink:#2b1800; --sun-soft:#fbe6c4; --sun-text:#8f5200;
+  --calm:#17847a; --calm-soft:#d3eeea; --rest:#6c64a0; --rest-soft:#e6e3f4;
+  --danger:#a8414f;
+  --z-close:#e8982a; --z-orbit:#b39a5c; --z-drift:#6f86b0; --z-far:#8a84b8;
+  --sel-bg:#1f2a55; --sel-ink:#ffffff;
+  --toast-bg:#1a2142; --toast-ink:#f2f4fb; --toast-act:#f6c46e;
+  --star:#8d9ac2;
+  --fs:58%; --fl:52%; --fl-soft:89%; --fl-ink:30%;
+  --shadow:0 1px 2px rgb(26 33 66 / .06), 0 10px 28px rgb(26 33 66 / .09);
+  --scrim:rgb(20 26 50 / .38);
+  --font-display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --font-body:"Atkinson Hyperlegible",Verdana,"Segoe UI",system-ui,sans-serif;
+  --font-mono:"Atkinson Hyperlegible Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --sky:#0b1026; --sky-deep:#070a1b; --panel:#131a37; --panel-2:#19224a;
+    --ink:#eceffa; --ink-2:#b4bbd9; --ink-3:#8f98bd; --line:#2e3869; --line-soft:#222b56;
+    --sun:#f4b44c; --sun-ink:#241500; --sun-soft:#3a2c16; --sun-text:#f7c76f;
+    --calm:#6dd3c5; --calm-soft:#15383b; --rest:#aba4de; --rest-soft:#27244d;
+    --danger:#f19aa6;
+    --z-close:#f4b44c; --z-orbit:#d6c08a; --z-drift:#93a8d6; --z-far:#a9a3dc;
+    --sel-bg:#3a4786; --sel-ink:#ffffff;
+    --toast-bg:#27305f; --toast-ink:#eceffa; --toast-act:#f7c76f;
+    --star:#dfe5ff;
+    --fs:68%; --fl:70%; --fl-soft:25%; --fl-ink:84%;
+    --shadow:0 1px 2px rgb(0 0 0 / .35), 0 12px 32px rgb(0 0 0 / .4);
+    --scrim:rgb(3 5 16 / .62);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --sky:#0b1026; --sky-deep:#070a1b; --panel:#131a37; --panel-2:#19224a;
+  --ink:#eceffa; --ink-2:#b4bbd9; --ink-3:#8f98bd; --line:#2e3869; --line-soft:#222b56;
+  --sun:#f4b44c; --sun-ink:#241500; --sun-soft:#3a2c16; --sun-text:#f7c76f;
+  --calm:#6dd3c5; --calm-soft:#15383b; --rest:#aba4de; --rest-soft:#27244d;
+  --danger:#f19aa6;
+  --z-close:#f4b44c; --z-orbit:#d6c08a; --z-drift:#93a8d6; --z-far:#a9a3dc;
+  --sel-bg:#3a4786; --sel-ink:#ffffff;
+  --toast-bg:#27305f; --toast-ink:#eceffa; --toast-act:#f7c76f;
+  --star:#dfe5ff;
+  --fs:68%; --fl:70%; --fl-soft:25%; --fl-ink:84%;
+  --shadow:0 1px 2px rgb(0 0 0 / .35), 0 12px 32px rgb(0 0 0 / .4);
+  --scrim:rgb(3 5 16 / .62);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--sky);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.5}
+[hidden]{display:none!important}
+img,svg{max-width:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
+.sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:-1px;padding:0;border:0}
+.ico{width:1.15em;height:1.15em;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.2em}
+
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,4vw,40px);padding-block:18px 56px}
+
+/* top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;flex-wrap:wrap;padding-block:2px 18px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing:-.01em;font-variation-settings:"opsz" 28}
+.brand svg{width:32px;height:32px}
+.hard-toggle{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:6px 8px 6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-weight:700;font-size:15px}
+.hard-toggle:hover{background:var(--panel-2)}
+.hard-toggle[aria-checked="true"]{border-color:var(--calm);background:var(--calm-soft)}
+.switch-ui{width:42px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:none;transition:background .2s}
+.switch-ui .knob,.switch .knob{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--panel);box-shadow:0 1px 3px rgb(0 0 0 / .25);transition:transform .2s}
+[aria-checked="true"] > .switch-ui{background:var(--calm)}
+[aria-checked="true"] > .switch-ui .knob{transform:translateX(16px)}
+
+/* intro */
+.intro{display:grid;gap:10px;max-width:880px}
+.intro h1{font-family:var(--font-display);font-weight:760;font-size:clamp(34px,5.6vw,62px);line-height:1.02;letter-spacing:-.028em;margin:0;text-wrap:balance;font-variation-settings:"opsz" 96}
+.intro h1 em{font-style:normal;color:var(--sun-text)}
+.intro p{margin:0;max-width:62ch;color:var(--ink-2);font-size:17.5px;text-wrap:pretty}
+.intro .promise{font-family:var(--font-mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+
+/* stage */
+.stage{display:grid;grid-template-columns:minmax(0,1.32fr) minmax(0,1fr);gap:20px;margin-top:26px;align-items:start}
+.side{display:grid;gap:20px;min-width:0}
+@media (max-width:940px){.stage{grid-template-columns:minmax(0,1fr)}}
+
+.orbit-panel{position:relative;border-radius:30px;background:radial-gradient(115% 85% at 50% 42%,var(--panel-2),var(--sky-deep) 78%);border:1px solid var(--line-soft);padding:14px 14px 18px;min-width:0}
+.orbit-box{position:relative;width:100%;max-width:660px;margin:0 auto;aspect-ratio:1/1}
+#orbit{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
+.orbit-tip{position:absolute;left:0;top:0;pointer-events:none;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:7px 11px;box-shadow:var(--shadow);font-size:14px;line-height:1.35;white-space:nowrap;z-index:2}
+.orbit-tip b{display:block;font-family:var(--font-display);font-size:16px}
+.orbit-tip span{color:var(--ink-2)}
+.orbit-overlay{position:absolute;inset:auto 0 9% 0;display:flex;justify-content:center;padding-inline:12%;text-align:center;pointer-events:none}
+.orbit-overlay > *{pointer-events:auto}
+.ov-card{background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--line-soft);border-radius:18px;padding:14px 18px;display:grid;gap:8px;justify-items:center;max-width:380px}
+.ov-card p{margin:0}
+.ov-title{font-family:var(--font-display);font-weight:700;font-size:19px}
+.ov-soft{color:var(--ink-2);font-family:var(--font-mono);font-size:14px;letter-spacing:.06em}
+.breath{position:absolute;left:0;right:0;top:calc(50% + 17%);text-align:center;font-family:var(--font-mono);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--sun-text);pointer-events:none}
+.legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px}
+.zchip{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:14.5px}
+.zchip:hover{background:var(--panel-2)}
+.zchip[aria-pressed="true"]{background:var(--sel-bg);color:var(--sel-ink);border-color:var(--sel-bg)}
+.zchip .n{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:13px;opacity:.8}
+.zdot{width:10px;height:10px;border-radius:50%;background:var(--z-close);flex:none}
+.z-orbit .zdot{background:var(--z-orbit)} .z-drift .zdot{background:var(--z-drift)} .z-far .zdot{background:var(--z-far)}
+.orbit-note{font-size:14px;color:var(--ink-3);text-align:center;max-width:54ch;margin:10px auto 0}
+
+/* generic surfaces and controls */
+.card{background:var(--panel);border:1px solid var(--line-soft);border-radius:22px;padding:20px;min-width:0}
+.eyebrow{font-family:var(--font-mono);font-size:12.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0}
+.fine{font-size:14px;color:var(--ink-3);margin:0}
+.muted{color:var(--ink-2)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 16px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-weight:700;font-size:15px;cursor:pointer;transition:background .15s,transform .08s;text-decoration:none}
+.btn:hover{background:var(--panel-2)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.primary{background:var(--sun);border-color:transparent;color:var(--sun-ink)}
+.btn.primary:hover{filter:brightness(1.05);background:var(--sun)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--ink-2)}
+.btn.ghost:hover{background:var(--panel-2);color:var(--ink)}
+.btn.small{min-height:38px;padding:6px 13px;font-size:14px}
+.btn.danger{border-color:var(--danger);color:var(--danger);background:transparent}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:14.5px;cursor:pointer;text-align:left;transition:background .15s}
+.chip:hover{background:var(--panel-2)}
+.chip[aria-pressed="true"],.chip[aria-checked="true"]{background:var(--sel-bg);color:var(--sel-ink);border-color:var(--sel-bg)}
+.chip.small{min-height:34px;padding:5px 11px;font-size:13.5px}
+.chip.liked::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--calm);margin-left:2px}
+.chip.kind .ico{color:hsl(var(--h,40) var(--fs) var(--fl))}
+.chip.thought{border-color:color-mix(in srgb,var(--sun) 55%,var(--line));background:color-mix(in srgb,var(--sun-soft) 55%,transparent)}
+.field{width:100%;min-width:0;min-height:46px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:var(--sky);color:var(--ink);font-size:16px}
+.field::placeholder{color:var(--ink-3)}
+textarea.field{resize:vertical;line-height:1.45}
+.icon-btn{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:50%;border:1px solid transparent;background:transparent;color:var(--ink-2);cursor:pointer;flex:none}
+.icon-btn:hover{background:var(--panel-2);color:var(--ink)}
+.icon-btn.sm{width:36px;height:36px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* avatars */
+.avatar{--sz:44px;position:relative;width:var(--sz);height:var(--sz);border-radius:50%;display:grid;place-items:center;flex:none;background:hsl(var(--h) var(--fs) var(--fl-soft));color:hsl(var(--h) var(--fs) var(--fl-ink));font-family:var(--font-display);font-weight:700;font-size:calc(var(--sz) * .36);letter-spacing:.01em;line-height:1}
+.avatar.safe::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--calm)}
+.avatar.resting{filter:saturate(.3);opacity:.75}
+
+/* today */
+.today{border-color:color-mix(in srgb,var(--sun) 40%,var(--line-soft));display:grid;gap:14px}
+.today-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.battery{display:flex;gap:4px;padding:3px;border-radius:999px;border:1px solid var(--line-soft);background:var(--sky)}
+.bat{display:grid;justify-items:center;gap:1px;min-width:52px;min-height:44px;padding:5px 6px 4px;border-radius:14px;border:0;background:transparent;cursor:pointer;color:var(--ink-2);font-size:11.5px;font-family:var(--font-mono);letter-spacing:.04em}
+.bat svg{width:28px;height:15px}
+.bat .shell{fill:none;stroke:currentColor;stroke-width:1.5}
+.bat .cap{fill:currentColor}
+.bat .bar{fill:var(--calm)}
+.bat:hover{background:var(--panel-2)}
+.bat[aria-checked="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgb(0 0 0 / .12)}
+.t-who{display:flex;gap:14px;align-items:center;background:none;border:0;padding:0;cursor:pointer;text-align:left;color:inherit;border-radius:14px}
+.t-name{font-family:var(--font-display);font-weight:720;font-size:28px;line-height:1.05;letter-spacing:-.015em;display:block}
+.t-meta{display:block;color:var(--ink-2);font-size:14.5px;margin-top:3px}
+.t-lines{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.t-lines li{display:flex;gap:8px;align-items:baseline;font-size:15.5px}
+.t-lines .k{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);flex:none;min-width:7.2em}
+.t-do{display:grid;gap:8px}
+.t-do .q{font-weight:700;margin:0}
+.t-do .q span{font-weight:400;color:var(--ink-2)}
+.t-done{display:flex;gap:10px;align-items:center;font-size:18px;margin:0}
+.t-done .ico{color:var(--calm);width:1.4em;height:1.4em}
+.soft-empty{margin:0;color:var(--ink-2);font-size:16px}
+
+/* wins */
+.wins{display:grid;gap:14px}
+.wins-row{display:flex;gap:18px;align-items:center}
+.jar{width:108px;flex:none}
+.jar .glass{fill:color-mix(in srgb,var(--panel-2) 70%,transparent);stroke:var(--ink-3);stroke-width:1.6}
+.jar .lid{fill:var(--sun);stroke:none}
+.jar .shine{fill:none;stroke:var(--panel);stroke-width:3;stroke-linecap:round;opacity:.7}
+.jar-star{fill:hsl(var(--h) var(--fs) var(--fl))}
+.big-n{font-family:var(--font-display);font-weight:760;font-size:40px;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin:0}
+.big-n small{font-size:17px;font-weight:600;color:var(--ink-2);letter-spacing:0}
+.wins p{margin:0}
+.upcoming{display:grid;gap:6px;border-top:1px solid var(--line-soft);padding-top:12px}
+.up-item{display:flex;gap:10px;align-items:center;background:none;border:0;padding:4px 0;cursor:pointer;text-align:left;color:inherit;font-size:15px}
+.up-item .ico{color:var(--sun-text)}
+
+/* harbor (hard day) */
+.harbor{display:grid;gap:14px;border-color:color-mix(in srgb,var(--calm) 45%,var(--line-soft))}
+.harbor h2{font-family:var(--font-display);font-size:28px;line-height:1.1;margin:0;letter-spacing:-.015em}
+.harbor p{margin:0}
+.h-person{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line-soft)}
+.h-open{display:flex;gap:12px;align-items:center;background:none;border:0;padding:0;cursor:pointer;text-align:left;color:inherit;min-width:0}
+.h-open b{display:block}
+.quote{margin:0;padding:12px 14px;border-radius:14px;background:var(--calm-soft);font-size:16px}
+
+/* people */
+.people{margin-top:44px}
+.people-head{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap}
+.people-head h2{font-family:var(--font-display);font-weight:760;font-size:clamp(28px,3.6vw,38px);letter-spacing:-.02em;margin:0;line-height:1.05}
+.add{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:10px;margin-top:16px;padding:12px;border-radius:20px;background:var(--panel);border:1px solid var(--line-soft)}
+@media (max-width:720px){.add{grid-template-columns:minmax(0,1fr)}}
+.add-more{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.dump{display:grid;gap:10px;margin-top:10px;padding:12px;border-radius:20px;background:var(--panel);border:1px dashed var(--line)}
+.banner{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px;padding:12px 14px;border-radius:16px;background:var(--sun-soft);color:var(--ink);font-size:15px}
+.banner p{margin:0;max-width:62ch}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:18px}
+.search{position:relative;flex:1 1 240px;min-width:0}
+.search .ico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+.search .field{padding-left:42px;background:var(--panel)}
+.toolbar select.field{width:auto;background:var(--panel)}
+.filter-note{margin:12px 0 0;font-size:14.5px;color:var(--ink-2);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.zone-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:28px 0 12px}
+.zone-h h3{font-family:var(--font-display);font-size:21px;margin:0;display:flex;align-items:center;gap:9px;letter-spacing:-.01em}
+.zone-h .zdot{width:12px;height:12px}
+.zone-h p{margin:0;color:var(--ink-3);font-size:14.5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,292px),1fr));gap:12px}
+.person{background:var(--panel);border:1px solid var(--line-soft);border-radius:18px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0;transition:border-color .2s}
+.person:hover{border-color:hsl(var(--h) var(--fs) var(--fl) / .6)}
+.person.flash{animation:warm 1.6s ease}
+@keyframes warm{0%{box-shadow:0 0 0 0 hsl(var(--h) var(--fs) var(--fl) / 0)}25%{box-shadow:0 0 0 7px hsl(var(--h) var(--fs) var(--fl) / .32)}100%{box-shadow:0 0 0 0 hsl(var(--h) var(--fs) var(--fl) / 0)}}
+.p-open{display:flex;gap:12px;align-items:center;background:none;border:0;padding:2px;margin:0;cursor:pointer;text-align:left;color:inherit;border-radius:12px;width:100%}
+.p-text{display:grid;gap:1px;min-width:0;flex:1}
+.p-name{font-weight:700;font-size:17px;overflow-wrap:anywhere}
+.p-pron{font-weight:400;font-size:13.5px;color:var(--ink-3)}
+.p-how{font-size:14px;color:var(--ink-2);overflow-wrap:anywhere}
+.p-last{font-size:13.5px;color:var(--ink-3);display:block}
+.p-last > .ico{margin-right:5px}
+.p-hint{margin:0;font-size:14.5px;color:var(--ink-2);padding:8px 10px;border-radius:12px;background:var(--panel-2);overflow-wrap:anywhere}
+.p-hint b{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-right:4px}
+.p-acts{display:flex;gap:8px;flex-wrap:wrap}
+.p-logrow{display:flex;gap:6px;flex-wrap:wrap;padding-top:2px}
+.tag{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--sun-soft);color:var(--sun-text);font-weight:600;vertical-align:2px}
+.bd-badge{display:inline-flex;gap:4px;align-items:center;color:var(--sun-text);margin-left:8px;white-space:nowrap}
+.meter{display:grid;justify-items:end;gap:2px;flex:none}
+.meter svg{width:44px;height:13px}
+.m-sun{fill:var(--sun)}
+.m-line{stroke:var(--line);stroke-width:1.4;stroke-dasharray:2 3}
+.m-dot{fill:hsl(var(--h) var(--fs) var(--fl))}
+.m-lab{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.empty{display:grid;gap:10px;justify-items:start;padding:22px;border-radius:20px;border:1px dashed var(--line);margin-top:18px}
+.empty h3{font-family:var(--font-display);font-size:24px;margin:0}
+.empty p{margin:0;max-width:60ch;color:var(--ink-2)}
+.resting{margin-top:34px;border-top:1px solid var(--line-soft);padding-top:16px}
+.resting summary{cursor:pointer;font-family:var(--font-display);font-weight:700;font-size:19px;display:flex;align-items:center;gap:8px;min-height:44px;list-style:none}
+.resting summary::-webkit-details-marker{display:none}
+.resting summary .ico{color:var(--rest)}
+.resting summary .n{font-family:var(--font-mono);font-size:13px;color:var(--ink-3);font-weight:400}
+.resting > p{margin:4px 0 12px}
+.person.is-resting{background:var(--rest-soft);border-color:transparent}
+
+/* footer */
+.foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--line-soft);display:grid;gap:12px}
+.foot-row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.status{display:flex;gap:8px;align-items:center;font-size:14.5px;color:var(--ink-2)}
+.status .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3)}
+.status.ok .dot{background:var(--calm)}
+.status.local .dot{background:var(--z-orbit)}
+.keys{font-size:13.5px;color:var(--ink-3)}
+kbd{font-family:var(--font-mono);font-size:12px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 5px;background:var(--panel)}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:40;animation:fade .2s ease}
+.drawer{position:fixed;z-index:50;top:0;right:0;bottom:0;width:min(540px,100%);background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--shadow);overflow-y:auto;overscroll-behavior:contain;padding:calc(env(safe-area-inset-top,0px) + 16px) 22px calc(env(safe-area-inset-bottom,0px) + 30px);animation:slidein .28s cubic-bezier(.2,.8,.2,1)}
+@media (max-width:640px){
+  .drawer{top:auto;left:0;width:100%;max-height:92vh;max-height:92dvh;border-left:0;border-top:1px solid var(--line);border-radius:24px 24px 0 0;padding-inline:16px;animation-name:slideup}
+}
+@keyframes fade{from{opacity:0}}
+@keyframes slidein{from{transform:translateX(40px);opacity:0}}
+@keyframes slideup{from{transform:translateY(60px);opacity:0}}
+.d-head{display:flex;gap:14px;align-items:flex-start}
+.d-id{flex:1;min-width:0;display:grid;gap:4px}
+.d-name{width:100%;font-family:var(--font-display);font-weight:760;font-size:30px;letter-spacing:-.02em;line-height:1.1;border:1px solid transparent;border-radius:10px;background:transparent;padding:2px 6px;margin-left:-6px}
+.d-name:hover,.bare:hover{border-color:var(--line-soft)}
+.d-name:focus,.bare:focus{border-color:var(--line);background:var(--sky);outline:none}
+.d-sub{display:flex;gap:6px;flex-wrap:wrap}
+.bare{min-width:0;border:1px solid transparent;border-radius:9px;background:transparent;padding:4px 6px;margin-left:-6px;font-size:15px;color:var(--ink-2)}
+.bare.pron{width:9.5em}
+.bare.grow{flex:1 1 12em}
+.bare::placeholder{color:var(--ink-3)}
+.d-example{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:var(--sun-soft);font-size:14.5px}
+.d-status{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:center;margin-top:16px;padding:14px;border-radius:16px;background:var(--panel-2)}
+.d-status p{margin:0}
+.d-status .fine{grid-column:1/-1}
+.d-sec{padding-block:18px;border-top:1px solid var(--line-soft);display:grid;gap:10px}
+.d-sec:first-of-type{margin-top:16px}
+.d-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.d-grid > div{display:grid;gap:8px;min-width:0}
+@media (max-width:480px){.d-grid{grid-template-columns:minmax(0,1fr)}}
+.bd{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:8px}
+.ideas{display:grid;gap:8px}
+.idea{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:10px 10px 10px 14px;border-radius:14px;background:var(--panel-2)}
+.idea p{margin:0;font-size:15.5px;overflow-wrap:anywhere;user-select:text}
+.idea.ai{background:color-mix(in srgb,var(--calm-soft) 70%,var(--panel-2))}
+.draft-box{display:grid;gap:8px;justify-items:start;margin-top:4px}
+.pulse{animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.45}}
+.lst{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.lst li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 4px 4px 12px;border-radius:12px;background:var(--panel-2);overflow-wrap:anywhere}
+.add-line{display:flex;gap:8px}
+.add-line .field{min-height:42px}
+.swatches{display:flex;flex-wrap:wrap;gap:8px}
+.swatch{width:36px;height:36px;border-radius:50%;border:3px solid var(--panel);background:hsl(var(--h) var(--fs) var(--fl));cursor:pointer;box-shadow:0 0 0 1px var(--line)}
+.swatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
+.glyph-l{display:flex;gap:10px;align-items:center;font-size:14.5px;color:var(--ink-2)}
+.glyph-l .field{width:5.5em;text-align:center;min-height:42px}
+.switch-row{display:flex;gap:14px;align-items:center;justify-content:space-between}
+.sw-t{margin:0 0 2px;font-weight:700;display:flex;gap:8px;align-items:center}
+.switch{position:relative;width:52px;height:30px;border-radius:999px;border:0;background:var(--line);cursor:pointer;flex:none;padding:0}
+.switch .knob{top:4px;left:4px;width:22px;height:22px}
+.switch[aria-checked="true"]{background:var(--calm)}
+.switch[aria-checked="true"] .knob{transform:translateX(22px)}
+.timeline{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.tl{display:flex;gap:12px;align-items:flex-start;padding:8px 0}
+.tl-ico{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:hsl(var(--h) var(--fs) var(--fl-soft));color:hsl(var(--h) var(--fs) var(--fl-ink));flex:none}
+.tl-body{flex:1;min-width:0}
+.tl-body p{margin:0}
+.tl time{color:var(--ink-3);font-size:14px;margin-left:4px}
+.tl-note{color:var(--ink-2);font-size:15px;overflow-wrap:anywhere}
+.note-form{display:grid;gap:8px;padding:12px;border-radius:14px;background:var(--calm-soft)}
+.note-form label{font-weight:700}
+.note-form .row .field{flex:1 1 14em}
+.d-danger{justify-items:start}
+.d-danger p{margin:0}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:6px;max-width:calc(100% - 32px);width:max-content;padding:8px 8px 8px 18px;border-radius:18px;background:var(--toast-bg);color:var(--toast-ink);box-shadow:var(--shadow);font-size:15.5px}
+.toast.in{animation:toastin .25s cubic-bezier(.2,.8,.2,1)}
+@keyframes toastin{from{transform:translate(-50%,16px);opacity:0}}
+.toast span{padding-right:6px}
+.toast button{border:0;background:transparent;color:var(--toast-act);font-weight:700;cursor:pointer;min-height:40px;padding:6px 10px;border-radius:12px;white-space:nowrap}
+.toast button:hover{background:rgb(255 255 255 / .08)}
+
+/* hard day mode */
+body.hardday .hide-hard{display:none!important}
+body:not(.hardday) .only-hard{display:none!important}
+
+@media (max-width:560px){
+  .intro p{font-size:16.5px}
+  .t-name{font-size:24px}
+  .card{padding:16px}
+  .orbit-panel{padding:8px 8px 14px;border-radius:24px}
+  .bat{min-width:44px}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2.8l2 6.2 6.2 2-6.2 2L12 19.2l-2-6.2-6.2-2 6.2-2z"/></symbol>
+    <symbol id="i-in" viewBox="0 0 24 24"><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M3.5 12H14"/><path d="M10 8l4 4-4 4"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-bubble" viewBox="0 0 24 24"><path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5h-9l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6.5A1.5 1.5 0 0 1 5 5z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></symbol>
+    <symbol id="i-game" viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 4 4v1.5a3 3 0 0 1-5.4 1.8L14.5 14h-5l-1.1 1.3A3 3 0 0 1 3 13.5V12a4 4 0 0 1 4-4z"/><path d="M7.5 10.2v3.4M5.8 11.9h3.4"/><path d="M15.5 11h.01M17.3 12.8h.01" stroke-width="2.4"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.5 3.5h3l1.5 4.5-2 1.3a10.5 10.5 0 0 0 5.7 5.7l1.3-2 4.5 1.5v3a2 2 0 0 1-2 2A15.5 15.5 0 0 1 4.5 5.5a2 2 0 0 1 2-2z"/></symbol>
+    <symbol id="i-cup" viewBox="0 0 24 24"><path d="M4 9.5h12V14a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.6a2.4 2.4 0 0 1 0 4.8h-2"/><path d="M8 3.5c-.9 1 .9 2 0 3.2M12 3.5c-.9 1 .9 2 0 3.2"/></symbol>
+    <symbol id="i-anchor" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2"/><path d="M12 7.5V20.5"/><path d="M5 13a7 7 0 0 0 14 0"/><path d="M8.5 11h7"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.2A7.8 7.8 0 0 1 9.8 4.5a7.8 7.8 0 1 0 9.7 9.7z"/></symbol>
+    <symbol id="i-cake" viewBox="0 0 24 24"><path d="M4 20.5h16"/><path d="M5.5 20.5V13h13v7.5"/><path d="M5.5 16.3c1.6 1 2.9 1 4.4 0 1.5-1 2.8-1 4.2 0 1.5 1 2.9 1 4.4 0"/><path d="M12 13V9.8"/><path d="M12 4.5c1 1.2 1 2.4 0 3-1-.6-1-1.8 0-3z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 12.5h9l1-12.5"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M5 19.5h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M4 7h3.5c4 0 5 10 9 10H20"/><path d="M4 17h3.5c1.4 0 2.4-1.2 3.3-2.7M13.2 9.7C14.1 8.2 15.1 7 16.5 7H20"/><path d="M17.5 4.5L20 7l-2.5 2.5M17.5 14.5L20 17l-2.5 2.5"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10a4 4 0 0 0 .6-8A5.5 5.5 0 0 0 7 11a3.8 3.8 0 0 0 0 7.5z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11.5" style="fill:none;stroke:var(--ink-3);stroke-dasharray:2 3"/><circle cx="16" cy="16" r="5" style="fill:var(--sun)"/><circle cx="26.2" cy="11.8" r="3.2" style="fill:var(--calm)"/></svg>
+      <span>Friend Orbit</span>
+    </div>
+    <button id="hard-btn" class="hard-toggle" role="switch" aria-checked="false" data-act="hard-day">
+      <svg class="ico"><use href="#i-cloud"/></svg>
+      <span>Hard day</span>
+      <span class="switch-ui"><span class="knob"></span></span>
+    </button>
+  </header>
+
+  <section class="intro" aria-labelledby="intro-h">
+    <h1 id="intro-h"><span class="hide-hard">Out of sight isn't <em>out of orbit.</em></span><span class="only-hard">Go easy. <em>Everyone's still here.</em></span></h1>
+    <p class="hide-hard">Everyone in here still exists, even on days your brain forgets them. Closer to the sun means you've been in touch lately. People drift out slowly, at their own pace, and nobody ever falls out of your sky.</p>
+    <p class="only-hard">Hard day mode is on. Only your safe people are lit up, and nothing on this page is asking anything of you.</p>
+    <p class="promise hide-hard">No streaks · No scores · Nothing overdue</p>
+  </section>
+
+  <div class="stage">
+    <section class="orbit-panel" aria-labelledby="orbit-h">
+      <h2 id="orbit-h" class="sr">Your orbit</h2>
+      <div class="orbit-box" id="orbit-box">
+        <canvas id="orbit" role="img" aria-label="Orbit map of your people"></canvas>
+        <div class="orbit-tip" id="orbit-tip" hidden></div>
+        <div class="breath only-hard" id="breath" aria-hidden="true"></div>
+        <div class="orbit-overlay" id="orbit-overlay"></div>
+      </div>
+      <div class="legend" id="legend" aria-label="Filter people by orbit ring"></div>
+      <p class="orbit-note hide-hard">Tap anyone in the sky to open their card. Thinking of someone keeps them in orbit. Talking brings them close.</p>
+    </section>
+
+    <div class="side">
+      <section class="card today hide-hard" id="today" aria-labelledby="today-h">
+        <div class="today-head">
+          <h2 id="today-h" class="eyebrow">Someone to think about</h2>
+          <div class="battery" id="battery" role="radiogroup" aria-label="Your battery today"></div>
+        </div>
+        <div id="today-body" class="today-body" style="display:grid;gap:14px"></div>
+      </section>
+
+      <section class="card harbor only-hard" id="harbor" aria-labelledby="harbor-h">
+        <p class="eyebrow">Hard day mode</p>
+        <h2 id="harbor-h">Nothing here is urgent.</h2>
+        <p class="muted">You don't have to reach out to anyone today. If you'd like some company, these are the people you marked as safe.</p>
+        <div id="harbor-list"></div>
+        <div style="display:grid;gap:8px">
+          <p class="eyebrow">A message that asks for nothing</p>
+          <p class="quote" id="harbor-quote">Rough day over here. No need to reply, I just wanted to say hi to someone I like.</p>
+          <div class="row"><button class="btn small" data-act="copy-plain" data-text="Rough day over here. No need to reply, I just wanted to say hi to someone I like."><svg class="ico"><use href="#i-copy"/></svg> Copy it</button></div>
+        </div>
+        <p class="fine">If it's more than a hard day, you can talk to someone right now. In the US or Canada, call or text 988. In the UK or Ireland, call Samaritans on 116 123.</p>
+        <div><button class="btn" data-act="hard-day">Back to everything</button></div>
+      </section>
+
+      <section class="card wins hide-hard" id="wins" aria-labelledby="wins-h">
+        <h2 id="wins-h" class="eyebrow">Your spark jar</h2>
+        <div class="wins-row">
+          <svg class="jar" id="jar" viewBox="0 0 120 150" role="img" aria-label="Spark jar"></svg>
+          <div style="display:grid;gap:6px;min-width:0">
+            <p class="big-n" id="spark-n">0 <small>sparks</small></p>
+            <p id="spark-week" class="muted"></p>
+            <p class="fine">Every spark is a time you remembered someone. The jar only fills.</p>
+          </div>
+        </div>
+        <div class="upcoming" id="upcoming" hidden></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="people hide-hard" id="people" aria-labelledby="people-h">
+    <div class="people-head">
+      <div>
+        <h2 id="people-h">Your people</h2>
+        <p class="fine" id="people-count"></p>
+      </div>
+    </div>
+
+    <form class="add" id="add-form" autocomplete="off">
+      <label class="sr" for="add-name">Name</label>
+      <input class="field" id="add-name" maxlength="60" placeholder="Who crossed your mind? A name is plenty">
+      <label class="sr" for="add-how">How you know them</label>
+      <input class="field" id="add-how" maxlength="80" placeholder="How you know them (optional)">
+      <button class="btn primary" type="submit"><svg class="ico"><use href="#i-plus"/></svg> Add to orbit</button>
+    </form>
+    <div class="add-more">
+      <button class="btn ghost small" type="button" data-act="dump-toggle" aria-expanded="false" aria-controls="dump"><svg class="ico"><use href="#i-list"/></svg> Add a bunch at once</button>
+      <span class="fine">Brain-dump every name you can think of. Sort it out later, or never.</span>
+    </div>
+    <form class="dump" id="dump" hidden>
+      <label for="dump-text" class="eyebrow">One name per line, or separated by commas</label>
+      <textarea class="field" id="dump-text" rows="4" placeholder="Sam&#10;Auntie Rose&#10;that guy from the Friday game nights"></textarea>
+      <div class="row"><button class="btn primary small" type="submit">Add everyone</button><span class="fine">People already in your orbit are skipped.</span></div>
+    </form>
+
+    <div class="banner" id="example-banner" hidden>
+      <p id="example-text"></p>
+      <button class="btn small" data-act="clear-examples">Clear example people</button>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <div class="search">
+        <svg class="ico"><use href="#i-search"/></svg>
+        <label class="sr" for="search">Search your people</label>
+        <input class="field" id="search" type="search" placeholder="Search names, notes, circles">
+      </div>
+      <label class="sr" for="sort">Sort people</label>
+      <select class="field" id="sort">
+        <option value="wave">Could use a wave first</option>
+        <option value="orbit">Closest first</option>
+        <option value="az">A to Z</option>
+        <option value="new">Newest added</option>
+      </select>
+    </div>
+    <div class="chips" id="circle-chips" style="margin-top:10px"></div>
+    <p class="filter-note" id="filter-note" hidden></p>
+
+    <div id="people-list"></div>
+
+    <details class="resting" id="resting" hidden>
+      <summary><svg class="ico"><use href="#i-moon"/></svg> Resting <span class="n" id="resting-n"></span></summary>
+      <p class="fine">People you've put down for now. They aren't suggested and don't show in your orbit. Nothing is deleted, and you can wake them any time.</p>
+      <div class="grid" id="resting-list"></div>
+    </details>
+  </section>
+
+  <footer class="foot">
+    <div class="foot-row">
+      <p class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></p>
+      <div class="row">
+        <button class="btn ghost small" data-act="backup"><svg class="ico"><use href="#i-down"/></svg> Back up</button>
+        <button class="btn ghost small" data-act="import"><svg class="ico"><use href="#i-up"/></svg> Restore a backup</button>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+    <p class="keys">Shortcuts: <kbd>N</kbd> add someone · <kbd>/</kbd> search · <kbd>Esc</kbd> close a card</p>
+    <p class="fine">Made for brains that forget people exist and then feel bad about it. You don't have to feel bad here.</p>
+  </footer>
+</div>
+
+<datalist id="circle-list"></datalist>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-name" hidden></aside>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- basics ---------- */
+const DAY = 864e5;
+const LS_KEY = 'friendOrbit.v1';
+const PREF_KEY = 'friendOrbit.prefs.v1';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const uid = p => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const pad = n => String(n).padStart(2, '0');
+const dayKey = (t = Date.now()) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const startOfDay = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
+const ico = id => `<svg class="ico" aria-hidden="true"><use href="#${id}"/></svg>`;
+const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function hashStr(s){ let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function debounce(fn, ms){ let t = 0; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const KINDS = {
+  thought: {label:'Thought of them',       past:'Thought of them',      icon:'i-spark',  cost:0, contact:false},
+  they:    {label:'They reached out',      past:'They reached out',     icon:'i-in',     cost:0, contact:true},
+  react:   {label:'Sent a meme or a heart',past:'Sent a meme or heart', icon:'i-heart',  cost:1, contact:true},
+  text:    {label:'Texted',                past:'Texted',               icon:'i-bubble', cost:2, contact:true},
+  voice:   {label:'Voice note',            past:'Sent a voice note',    icon:'i-mic',    cost:2, contact:true},
+  game:    {label:'Gamed together',        past:'Gamed together',       icon:'i-game',   cost:3, contact:true},
+  call:    {label:'Called',                past:'Called',               icon:'i-phone',  cost:3, contact:true},
+  hang:    {label:'Hung out',              past:'Hung out',             icon:'i-cup',    cost:4, contact:true},
+};
+const KIND_ORDER = ['thought','react','text','voice','game','call','hang','they'];
+const KIND_CHANNEL = {react:['memes','social'], text:['text'], voice:['voice'], game:['games'], call:['calls','video'], hang:['irl']};
+const RHYTHMS = {
+  weekly:   {days:7,   label:'Every week'},
+  fortnight:{days:14,  label:'Every couple of weeks'},
+  monthly:  {days:30,  label:'Every month or so'},
+  seasonal: {days:90,  label:'Every few months'},
+  whenever: {days:180, label:'Whenever'},
+};
+const CHANNELS = {text:'Texts', voice:'Voice notes', memes:'Memes', calls:'Calls', video:'Video chat', games:'Games', irl:'In person', letters:'Cards and letters', social:'Social media'};
+const ENERGY = [
+  {v:1, label:'Empty', hint:'Just remembering them counts today.'},
+  {v:2, label:'Low',   hint:'Something tiny, like a heart or a meme.'},
+  {v:3, label:'Okay',  hint:'Maybe a text or a voice note.'},
+  {v:4, label:'Good',  hint:'Anything goes, if you feel like it.'},
+];
+const ZONES = [
+  {key:'close', label:'Close',    blurb:'In touch lately',   max:0.5},
+  {key:'orbit', label:'Orbiting', blurb:'Doing fine',        max:1},
+  {key:'drift', label:'Drifting', blurb:'Could use a wave',  max:2},
+  {key:'far',   label:'Far out',  blurb:'Still in your sky', max:Infinity},
+];
+const HUES = [198, 318, 150, 12, 252, 172, 28, 282, 222, 346];
+const HUE_NAMES = {12:'coral', 28:'tangerine', 150:'green', 172:'teal', 198:'sky', 222:'blue', 252:'indigo', 282:'violet', 318:'orchid', 346:'rose'};
+const APPROX = {week:4, month:24, months:100, ages:400};
+const THOUGHT_LINES = ['Remembered {n}. That is the whole point.', '{n} stays in your orbit.', 'Noted. Thinking of someone counts.'];
+const CONTACT_LINES = ['{n} is a little closer now.', 'That counts. It really does.', 'Small reach, real connection.', 'Done. That was a kind thing to do.', 'Nice. {n} just drifted closer.'];
+
+/* ---------- prefs (this browser only) ---------- */
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+function savePrefs(){ try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {} }
+
+/* ---------- state ---------- */
+const state = {
+  friends: new Map(),
+  search: '', circle: 'all', zone: null, sort: prefs.sort || 'wave',
+  expanded: new Set(),
+  openId: null, openSection: null, noteFor: null, showAllLog: false, confirmDelete: false,
+  energy: (prefs.energy && prefs.energy.date === dayKey()) ? prefs.energy.v : null,
+  hardDay: !!prefs.hardDay,
+  sample: null, sampleOff: false, downloads: null,
+};
+let draft = null;
+
+/* ---------- friend model ---------- */
+function first(f){ return f.name.trim().split(/\s+/)[0]; }
+function initials(f){
+  const p = f.name.trim().split(/\s+/);
+  const a = Array.from(p[0] || '')[0] || '';
+  const b = p.length > 1 ? (Array.from(p[p.length - 1])[0] || '') : '';
+  return (a + b).toUpperCase() || '?';
+}
+function normFriend(raw){
+  if (!raw || typeof raw !== 'object') return null;
+  const str = (v, n) => String(v ?? '').trim().slice(0, n);
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  const name = str(raw.name, 60);
+  if (!name) return null;
+  const okId = v => typeof v === 'string' && /^[A-Za-z0-9_\-.~:@+]{1,80}$/.test(v) && v !== '.' && v !== '..';
+  const id = okId(raw.id) ? raw.id : uid('f');
+  const items = (v, n) => Array.isArray(v) ? v.filter(x => x && typeof x.text === 'string' && x.text.trim()).slice(0, n)
+    .map(x => ({id: typeof x.id === 'string' ? x.id.slice(0, 40) : uid('n'), text: str(x.text, 160)})) : [];
+  const log = Array.isArray(raw.log) ? raw.log.filter(l => l && KINDS[l.kind] && num(l.at) !== null).slice(0, 200)
+    .map(l => ({id: typeof l.id === 'string' ? l.id.slice(0, 40) : uid('l'), kind: l.kind, at: l.at, note: str(l.note, 280)})) : [];
+  log.sort((a, b) => b.at - a.at);
+  const bd = raw.birthday && num(raw.birthday.m) !== null && num(raw.birthday.d) !== null
+    ? {m: clamp(Math.round(raw.birthday.m), 1, 12), d: clamp(Math.round(raw.birthday.d), 1, 31)} : null;
+  const hue = num(raw.hue);
+  return {
+    id, name,
+    pronouns: str(raw.pronouns, 30), how: str(raw.how, 80), circle: str(raw.circle, 30).toLowerCase(),
+    hue: hue !== null ? ((Math.round(hue) % 360) + 360) % 360 : HUES[hashStr(id) % HUES.length],
+    glyph: Array.from(str(raw.glyph, 8)).slice(0, 2).join(''),
+    rhythm: RHYTHMS[raw.rhythm] ? raw.rhythm : 'monthly',
+    channels: Array.isArray(raw.channels) ? [...new Set(raw.channels.filter(c => CHANNELS[c]))] : [],
+    memories: items(raw.memories, 40), topics: items(raw.topics, 40), log,
+    approxLast: num(raw.approxLast),
+    birthday: bd,
+    safe: !!raw.safe, resting: !!raw.resting, restNote: str(raw.restNote, 120),
+    example: !!raw.example,
+    createdAt: num(raw.createdAt) ?? Date.now(), updatedAt: num(raw.updatedAt) ?? Date.now(),
+  };
+}
+function lastContactLog(f){ return f.log.find(l => KINDS[l.kind].contact) || null; }
+function lastContact(f){
+  const l = lastContactLog(f);
+  let t = l ? l.at : null;
+  if (f.approxLast !== null && (t === null || f.approxLast > t)) t = f.approxLast;
+  return t;
+}
+function lastThought(f){ const l = f.log.find(x => x.kind === 'thought'); return l ? l.at : null; }
+function rhythmDays(f){ return (RHYTHMS[f.rhythm] || RHYTHMS.monthly).days; }
+/* 0 = just talked. 1 = one full "rhythm" has passed. Thinking of someone keeps them in orbit (never past 0.5 + a bit). */
+function drift(f){
+  const now = Date.now(), R = rhythmDays(f);
+  const lc = lastContact(f), lt = lastThought(f);
+  let d = lc === null ? 1.5 : (now - lc) / DAY / R;
+  if (lt !== null) d = Math.min(d, 0.5 + (now - lt) / DAY / R);
+  return Math.max(0, d);
+}
+const zoneOf = d => ZONES.find(z => d < z.max);
+const rf = d => 0.17 + 0.77 * (1 - Math.exp(-0.75 * d));
+function ago(t){
+  const days = daysBetween(t, Date.now());
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 11) return 'about a week ago';
+  if (days < 26) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 45) return 'about a month ago';
+  if (days < 320) return `${Math.max(2, Math.round(days / 30.4))} months ago`;
+  if (days < 548) return 'about a year ago';
+  return 'over a year ago';
+}
+function nextBirthday(f){
+  if (!f.birthday) return null;
+  const now = new Date(), y = now.getFullYear();
+  let d = new Date(y, f.birthday.m - 1, f.birthday.d);
+  if (startOfDay(d.getTime()) < startOfDay(now.getTime())) d = new Date(y + 1, f.birthday.m - 1, f.birthday.d);
+  return {date: d, days: daysBetween(now.getTime(), d.getTime())};
+}
+function likesKind(f, k){ return (KIND_CHANNEL[k] || []).some(c => f.channels.includes(c)); }
+const activeFriends = () => [...state.friends.values()].filter(f => !f.resting);
+const allFriends = () => [...state.friends.values()];
+const loggedToday = f => f.log.some(l => l.at >= startOfDay(Date.now()));
+
+/* ---------- storage: your account (db) when available, this browser otherwise ---------- */
+const Store = {
+  mode: 'loading', note: '', db: null, gotFirst: false,
+  dirty: new Set(), inflight: new Set(), workers: 0, retries: new Map(), soon: new Map(),
+  pending(id){ return this.dirty.has(id) || this.inflight.has(id) || this.soon.has(id); },
+  persist(id){
+    if (this.mode === 'db'){ this.dirty.add(id); this.pump(); }
+    else if (this.mode === 'local') this.saveLocal();
+  },
+  persistSoon(id){
+    clearTimeout(this.soon.get(id));
+    this.soon.set(id, setTimeout(() => { this.soon.delete(id); this.persist(id); }, 700));
+  },
+  pump(){
+    while (this.workers < 3){
+      const id = [...this.dirty].find(x => !this.inflight.has(x));
+      if (!id) break;
+      this.dirty.delete(id); this.inflight.add(id); this.workers++;
+      this.writeOne(id).finally(() => { this.inflight.delete(id); this.workers--; this.pump(); });
+    }
+  },
+  async writeOne(id){
+    if (this.mode !== 'db') return;
+    const f = state.friends.get(id);
+    const ref = this.db.collection('friends').doc(id);
+    try {
+      if (f) await ref.set(JSON.parse(JSON.stringify(f)));
+      else await ref.delete();
+      this.retries.delete(id);
+    } catch (e) {
+      const code = e && e.code;
+      const n = (this.retries.get(id) || 0) + 1;
+      if ((code === 'unavailable' || code === 'resource_exhausted') && n <= 4){
+        this.retries.set(id, n);
+        await sleep(600 * n + Math.random() * 800);
+        this.dirty.add(id);
+      } else if (code === 'quota_exceeded'){
+        toast('Your account storage for this page is full. Removing a few people or old examples will make room.');
+      } else {
+        this.fallbackLocal("Couldn't save to your account, so changes are being kept in this browser for now. A backup is a good idea.");
+      }
+    }
+  },
+  saveLocal: debounce(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({v: 1, friends: allFriends()})); Store.localFail = false; }
+    catch (e) { Store.localFail = true; renderStatus(); }
+  }, 250),
+  loadLocal(){
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw){ const p = JSON.parse(raw); (p.friends || []).forEach(r => { const f = normFriend(r); if (f) state.friends.set(f.id, f); }); }
+    } catch (e) {}
+  },
+  fallbackLocal(note){
+    if (this.mode === 'local') return;
+    if (this.unsub) try { this.unsub(); } catch (e) {}
+    this.mode = 'local'; this.note = note; this.gotFirst = true;
+    this.dirty.clear();
+    this.saveLocal();
+    renderAll();
+  },
+};
+const isLoading = () => Store.mode === 'loading' || (Store.mode === 'db' && !Store.gotFirst);
+
+function commit(f, {drawer = true} = {}){
+  f.updatedAt = Date.now();
+  state.friends.set(f.id, f);
+  Store.persist(f.id);
+  renderAll();
+  if (drawer && state.openId === f.id) renderDrawer();
+}
+function edit(id, fn, opts){ const f = state.friends.get(id); if (!f) return null; fn(f); commit(f, opts); return f; }
+const renderSoon = debounce(() => renderAll(), 250);
+
+async function boot(){
+  applyHardDay();
+  renderAll();
+  const c = window.claude;
+  if (!c || typeof c.use !== 'function'){ startLocal(''); return; }
+  c.use('sample').then(s => { state.sample = s; if (state.openId) renderDrafts(); }).catch(() => {});
+  c.use('downloads').then(d => { state.downloads = d; }).catch(() => {});
+  let db = null, user = null;
+  try { [db, user] = await Promise.all([c.use('db'), c.use('user')]); } catch (e) {}
+  if (!db){ startLocal(''); return; }
+  let owner = null;
+  try { owner = user ? await user.isOwner() : null; } catch (e) {}
+  if (owner === false){ startLocal('This orbit is private to the person who made it, so yours is kept in this browser.'); return; }
+  startDb(db);
+}
+function startLocal(note){ Store.mode = 'local'; Store.note = note; Store.loadLocal(); renderAll(); }
+function startDb(db){
+  Store.mode = 'db'; Store.db = db;
+  const wait = setTimeout(() => { if (!Store.gotFirst){ Store.gotFirst = true; renderAll(); } }, 6000);
+  try {
+    Store.unsub = db.collection('friends').onSnapshot(snap => {
+      if (Store.mode !== 'db') return;
+      let touchedOpen = false;
+      for (const ch of snap.docChanges()){
+        const id = ch.doc.id;
+        if (Store.pending(id)) continue;
+        if (ch.type === 'removed') state.friends.delete(id);
+        else { const f = normFriend({...ch.doc.data(), id}); if (f) state.friends.set(id, f); }
+        if (id === state.openId) touchedOpen = true;
+      }
+      if (!Store.gotFirst && (!snap.metadata.fromCache || snap.size > 0)){ Store.gotFirst = true; clearTimeout(wait); }
+      renderAll();
+      if (touchedOpen){
+        if (!state.friends.has(state.openId)) closeDrawer();
+        else if (!$('#drawer').contains(document.activeElement) || document.activeElement.tagName === 'BUTTON') renderDrawer();
+      }
+    }, () => Store.fallbackLocal("Lost the connection to your account. What you see is kept in this browser for now."));
+  } catch (e) {
+    clearTimeout(wait);
+    startLocal('');
+  }
+}
+
+/* ---------- orbit canvas ---------- */
+const Orbit = (() => {
+  const box = $('#orbit-box'), cv = $('#orbit'), ctx = cv.getContext('2d'), tip = $('#orbit-tip'), breathEl = $('#breath');
+  let W = 0, H = 0, dpr = 1, R = 0, cx = 0, cy = 0, C = {};
+  const bodies = new Map();
+  let parts = [], stars = [], hover = null, pulse = null, over = false, ts = 1, t = 0, lastT = 0, lastDraw = 0, raf = 0;
+  let ghosts = false, loading = true, dim = false, started = false, breathWord = '';
+
+  function readColors(){
+    const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
+    C = {sun: g('--sun'), ink: g('--ink'), ink2: g('--ink-2'), ink3: g('--ink-3'), line: g('--line'), calm: g('--calm'),
+         halo: g('--panel-2'), star: g('--star'), fs: g('--fs'), fl: g('--fl'), body: g('--font-body'), mono: g('--font-mono')};
+    draw();
+  }
+  const hsl = (h, a = 1) => `hsla(${h}, ${C.fs}, ${C.fl}, ${a})`;
+  function hexA(hex, a){
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return `rgba(232,152,42,${a})`;
+    const n = parseInt(m[1], 16);
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+  }
+  function seedStars(){
+    let s = 11; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    stars = Array.from({length: 110}, () => ({x: rnd(), y: rnd(), r: .35 + rnd() * 1.1, a: .2 + rnd() * .55, sp: .3 + rnd() * 1.3, ph: rnd() * 6.28}));
+  }
+  function resize(){
+    const r = cv.getBoundingClientRect();
+    if (!r.width) return;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cx = W / 2; cy = H / 2; R = Math.min(W, H) / 2 - 6;
+    draw();
+  }
+  const omega = r => (Math.PI * 2 / 420) * Math.pow(0.35 / Math.max(r, .2), 1.5);
+  const scale = () => clamp(R / 300, .78, 1.2);
+
+  function sync(list, opts){
+    loading = opts.loading;
+    const vis = list.filter(f => !f.resting).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+    const firstNames = {};
+    vis.forEach(f => { const n = first(f).toLowerCase(); firstNames[n] = (firstNames[n] || 0) + 1; });
+    const seen = new Set();
+    vis.forEach((f, i) => {
+      seen.add(f.id);
+      const d = drift(f), target = rf(d);
+      let b = bodies.get(f.id);
+      if (!b){
+        const instant = !started || reduceMotion.matches;
+        b = {id: f.id, r: instant ? target : 1.1, a0: i * 2.39996323 + 0.7, ph: 0, alpha: instant ? 1 : 0, x: cx, y: cy};
+        bodies.set(f.id, b);
+      }
+      const fn = first(f), words = f.name.trim().split(/\s+/);
+      b.target = target; b.hue = f.hue; b.safe = f.safe; b.zone = zoneOf(d).key; b.f = f;
+      b.label = firstNames[fn.toLowerCase()] > 1 && words.length > 1 ? `${fn} ${Array.from(words[words.length - 1])[0]}.` : fn;
+    });
+    for (const id of [...bodies.keys()]) if (!seen.has(id)) bodies.delete(id);
+    ghosts = !loading && list.length === 0;
+    if (!loading) started = true;
+    if (hover && !bodies.has(hover)) setHover(null);
+    kick();
+  }
+
+  function breath(){
+    const p = t % 10;
+    if (p < 4){ const x = p / 4; return {v: .5 - .5 * Math.cos(Math.PI * x), w: 'Breathe in'}; }
+    const x = (p - 4) / 6; return {v: .5 + .5 * Math.cos(Math.PI * x), w: 'Breathe out'};
+  }
+
+  function draw(){
+    if (!W || !C.sun) return;
+    const S = scale();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const still = reduceMotion.matches;
+
+    // background stars
+    ctx.fillStyle = C.star;
+    for (const s of stars){
+      const tw = still ? 1 : .6 + .4 * Math.sin(t * s.sp + s.ph);
+      ctx.globalAlpha = s.a * tw;
+      ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 6.2832); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // rings
+    const bounds = [0.13, rf(0.5), rf(1), rf(2), 0.965];
+    ctx.lineWidth = 1; ctx.strokeStyle = C.line; ctx.setLineDash([2, 6]);
+    for (let i = 1; i < bounds.length; i++){ ctx.beginPath(); ctx.arc(cx, cy, bounds[i] * R, 0, 6.2832); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.font = `600 ${Math.round(10.5 * S)}px ${C.mono}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${(1.6 * S).toFixed(1)}px`;
+    ctx.fillStyle = C.ink3; ctx.globalAlpha = dim ? .35 : .85;
+    ZONES.forEach((z, i) => ctx.fillText(z.label.toUpperCase(), cx, cy - ((bounds[i] + bounds[i + 1]) / 2) * R));
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.globalAlpha = 1;
+
+    // the sun (you)
+    const br = dim ? breath() : {v: 0, w: ''};
+    if (dim && !still && br.w !== breathWord){ breathWord = br.w; breathEl.textContent = br.w; }
+    const sr = R * 0.068 * (1 + (still ? 0 : 0.42 * br.v));
+    const glow = ctx.createRadialGradient(cx, cy, sr * .3, cx, cy, sr * 3.4);
+    glow.addColorStop(0, hexA(C.sun, .5)); glow.addColorStop(1, hexA(C.sun, 0));
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(cx, cy, sr * 3.4, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = C.sun; ctx.beginPath(); ctx.arc(cx, cy, sr, 0, 6.2832); ctx.fill();
+    ctx.font = `600 ${Math.round(11 * S)}px ${C.mono}`; ctx.fillStyle = C.ink2;
+    ctx.fillText('YOU', cx, cy + sr + 13 * S);
+
+    // ghost friends when the sky is empty
+    if (ghosts){
+      const ghostNames = ['an old friend', 'a cousin', 'someone from online', 'a coworker you liked', 'a neighbour'];
+      ctx.font = `${Math.round(12.5 * S)}px ${C.body}`;
+      ghostNames.forEach((g, i) => {
+        const a = i * 2.39996 + .5 + (still ? 0 : t * .01), r = rf([0.3, 0.8, 1.4, 2.3, 3.2][i]) * R;
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+        ctx.globalAlpha = .55; ctx.strokeStyle = C.ink3; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(x, y, 7 * S, 0, 6.2832); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = C.ink3; ctx.textAlign = x > cx ? 'right' : 'left';
+        ctx.fillText(g, x + (x > cx ? -14 : 14) * S, y);
+      });
+      ctx.globalAlpha = 1; ctx.textAlign = 'center';
+    }
+
+    // a faint thread from you to whoever is highlighted
+    const focusId = hover || pulse;
+    const fb = focusId && bodies.get(focusId);
+    if (fb){
+      ctx.strokeStyle = hsl(fb.hue, .55); ctx.lineWidth = 1.4; ctx.setLineDash([4, 5]);
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(fb.x, fb.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // friends
+    const many = bodies.size > 26;
+    for (const b of bodies.values()){
+      const ang = b.a0 + b.ph, x = cx + Math.cos(ang) * b.r * R, y = cy + Math.sin(ang) * b.r * R;
+      b.x = x; b.y = y;
+      const hidden = dim && !b.safe;
+      const isF = focusId === b.id;
+      const rad = (isF ? 9.5 : 7) * S;
+      ctx.globalAlpha = b.alpha * (hidden ? .14 : 1);
+      if (isF || (dim && b.safe)){
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad * 3.2);
+        g.addColorStop(0, hsl(b.hue, .45)); g.addColorStop(1, hsl(b.hue, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad * 3.2, 0, 6.2832); ctx.fill();
+      }
+      if (b.safe){ ctx.strokeStyle = C.calm; ctx.lineWidth = 2 * S; ctx.beginPath(); ctx.arc(x, y, rad + 4 * S, 0, 6.2832); ctx.stroke(); }
+      ctx.fillStyle = hsl(b.hue); ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.2832); ctx.fill();
+      if (!hidden && (!many || isF || b.zone === 'drift' || b.zone === 'far' || b.safe)){
+        const right = x < cx + R * .55;
+        ctx.font = `${isF ? 700 : 400} ${Math.round((isF ? 14 : 12.5) * S)}px ${C.body}`;
+        ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'middle';
+        const lx = x + (right ? 1 : -1) * (rad + (b.safe ? 9 : 6) * S);
+        ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = C.halo;
+        ctx.strokeText(b.label, lx, y); ctx.fillStyle = isF ? C.ink : C.ink2; ctx.fillText(b.label, lx, y);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // sparks
+    for (const p of parts){
+      const a = clamp(p.life / p.max, 0, 1), s = p.sz * (0.5 + a);
+      ctx.globalAlpha = a; ctx.fillStyle = p.gold ? C.sun : hsl(p.hue);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - s * 2); ctx.lineTo(p.x + s * .5, p.y - s * .5); ctx.lineTo(p.x + s * 2, p.y); ctx.lineTo(p.x + s * .5, p.y + s * .5);
+      ctx.lineTo(p.x, p.y + s * 2); ctx.lineTo(p.x - s * .5, p.y + s * .5); ctx.lineTo(p.x - s * 2, p.y); ctx.lineTo(p.x - s * .5, p.y - s * .5);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    placeTip();
+  }
+
+  function frame(now){
+    raf = 0;
+    if (now - lastDraw < 30){ schedule(); return; }
+    const dt = Math.min(.08, (now - (lastT || now)) / 1000);
+    lastT = now; lastDraw = now;
+    const still = reduceMotion.matches;
+    ts += ((over ? 0 : 1) - ts) * Math.min(1, dt * 4);
+    let busy = false;
+    if (!still) t += dt;
+    for (const b of bodies.values()){
+      if (!still) b.ph += dt * ts * omega(b.r);
+      const dr = b.target - b.r;
+      if (Math.abs(dr) > .0008){ b.r += dr * Math.min(1, dt * 2.4); busy = true; } else b.r = b.target;
+      if (b.alpha < 1){ b.alpha = Math.min(1, b.alpha + dt * 1.6); busy = true; }
+    }
+    for (const p of parts){ p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .95; p.vy *= .95; }
+    parts = parts.filter(p => p.life > 0);
+    draw();
+    if (!still || busy || parts.length) schedule();
+  }
+  function schedule(){ if (!raf && !document.hidden) raf = requestAnimationFrame(frame); }
+  function kick(){
+    if (reduceMotion.matches){ for (const b of bodies.values()){ b.r = b.target; b.alpha = 1; } lastT = 0; draw(); }
+    else schedule();
+  }
+
+  function hit(px, py){
+    let best = null, bd = Infinity;
+    for (const b of bodies.values()){
+      if (dim && !b.safe) continue;
+      const d = Math.hypot(b.x - px, b.y - py);
+      if (d < bd){ bd = d; best = b; }
+    }
+    return best && bd < 24 ? best : null;
+  }
+  function setHover(id){
+    if (hover === id) return;
+    hover = id;
+    cv.style.cursor = id ? 'pointer' : 'default';
+    const b = id && bodies.get(id);
+    if (b && b.f){
+      const lc = lastContact(b.f), z = zoneOf(drift(b.f));
+      tip.innerHTML = `<b>${esc(b.f.name)}</b><span>${esc(z.label)} · ${lc === null ? 'no contact logged yet' : 'last in touch ' + esc(ago(lc))}</span>`;
+      tip.hidden = false;
+    } else tip.hidden = true;
+    kick(); draw();
+  }
+  function placeTip(){
+    if (tip.hidden || !hover) return;
+    const b = bodies.get(hover); if (!b) return;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = clamp(b.x - tw / 2, 4, W - tw - 4), y = b.y - th - 18;
+    if (y < 4) y = b.y + 18;
+    tip.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener('pointermove', e => { over = true; const b = hit(...pos(e)); setHover(b ? b.id : null); });
+  cv.addEventListener('pointerleave', () => { over = false; setHover(null); schedule(); });
+  cv.addEventListener('click', e => { const b = hit(...pos(e)); if (b) openDrawer(b.id); });
+
+  function burst(id, big){
+    const b = bodies.get(id);
+    if (!b || reduceMotion.matches) return;
+    const n = big ? 22 : 12;
+    for (let i = 0; i < n; i++){
+      const a = Math.random() * 6.2832, s = (big ? 90 : 50) * (.35 + Math.random());
+      parts.push({x: b.x, y: b.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: .8 + Math.random() * .7, max: 1.5, hue: b.hue, gold: Math.random() < .35, sz: 1.6 + Math.random() * 2});
+    }
+    kick();
+  }
+  function setPulse(id){ if (pulse === id) return; pulse = id; kick(); draw(); }
+  function setDim(on){ dim = on; breathWord = ''; breathEl.textContent = on && reduceMotion.matches ? 'Slow breath in. Longer breath out.' : ''; kick(); }
+
+  seedStars();
+  new ResizeObserver(resize).observe(box);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+  new MutationObserver(readColors).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme', 'class', 'style']});
+  reduceMotion.addEventListener('change', () => { setDim(dim); kick(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(readColors);
+  readColors(); resize();
+  return {sync, burst, setPulse, setDim, kick};
+})();
+
+/* ---------- rendering ---------- */
+function renderAll(){
+  renderLegend();
+  renderToday();
+  renderWins();
+  renderHarbor();
+  renderPeople();
+  renderStatus();
+  renderOverlay();
+  Orbit.sync(allFriends(), {loading: isLoading()});
+}
+
+function withFocus(container, fn){
+  const a = document.activeElement;
+  const key = a && container.contains(a) ? a.dataset.fk : null;
+  fn();
+  if (key){ const el = container.querySelector(`[data-fk="${CSS.escape(key)}"]`); if (el) el.focus({preventScroll: true}); }
+}
+
+function renderOverlay(){
+  const el = $('#orbit-overlay');
+  if (isLoading()) el.innerHTML = `<p class="ov-soft">Finding your people…</p>`;
+  else if (!state.friends.size) el.innerHTML = `<div class="ov-card"><p class="ov-title">Your sky is empty for now.</p><p class="muted">Add one name below. Anyone who crossed your mind this week counts.</p><button class="btn small" data-act="examples">Try it with example people</button></div>`;
+  else el.innerHTML = '';
+}
+
+function renderLegend(){
+  const c = {close: 0, orbit: 0, drift: 0, far: 0};
+  const act = activeFriends();
+  act.forEach(f => c[zoneOf(drift(f)).key]++);
+  withFocus($('#legend'), () => {
+    $('#legend').innerHTML = ZONES.map(z => `<button class="zchip z-${z.key}" data-act="zone" data-zone="${z.key}" data-fk="zone:${z.key}" aria-pressed="${state.zone === z.key}"><span class="zdot"></span>${z.label}<span class="n">${c[z.key]}</span></button>`).join('');
+  });
+  $('#orbit').setAttribute('aria-label', act.length
+    ? `Orbit map of ${act.length} ${act.length === 1 ? 'person' : 'people'}: ${ZONES.map(z => `${c[z.key]} ${z.label.toLowerCase()}`).join(', ')}. The list below has everyone.`
+    : 'Orbit map. Nobody added yet.');
+}
+
+function batterySVG(v){
+  const bars = [0, 1, 2, 3][v - 1];
+  let s = `<svg viewBox="0 0 32 16" aria-hidden="true"><rect class="shell" x="1" y="2" width="26" height="12" rx="3"/><rect class="cap" x="28" y="6" width="2.6" height="4" rx="1"/>`;
+  for (let i = 0; i < bars; i++) s += `<rect class="bar" x="${3.5 + i * 7.5}" y="4.5" width="6" height="7" rx="1.3"/>`;
+  return s + '</svg>';
+}
+function renderBattery(){
+  withFocus($('#battery'), () => {
+    $('#battery').innerHTML = ENERGY.map(e => `<button class="bat" role="radio" aria-checked="${state.energy === e.v}" data-act="energy" data-v="${e.v}" data-fk="bat:${e.v}" title="${esc(e.hint)}">${batterySVG(e.v)}<span>${e.label}</span></button>`).join('');
+  });
+}
+
+function todayPick(){
+  const act = activeFriends();
+  if (!act.length) return null;
+  const tk = dayKey();
+  if (prefs.pick && prefs.pick.date === tk){
+    const f = state.friends.get(prefs.pick.id);
+    if (f && !f.resting) return f;
+  }
+  const ranked = act.slice().sort((a, b) => drift(b) - drift(a) || a.name.localeCompare(b.name));
+  const pool = ranked.slice(0, Math.min(5, ranked.length));
+  const f = pool[hashStr(tk) % pool.length];
+  prefs.pick = {date: tk, id: f.id}; savePrefs();
+  return f;
+}
+function nextPick(){
+  const act = activeFriends();
+  if (act.length < 2) return;
+  const tk = dayKey(), cur = prefs.pick && prefs.pick.id;
+  const seen = new Set(prefs.seen && prefs.seen.date === tk ? prefs.seen.ids : []);
+  seen.add(cur);
+  const ranked = act.slice().sort((a, b) => drift(b) - drift(a) || a.name.localeCompare(b.name));
+  let f = ranked.find(x => !seen.has(x.id));
+  if (!f){ seen.clear(); seen.add(cur); f = ranked.find(x => !seen.has(x.id)); }
+  prefs.seen = {date: tk, ids: [...seen]};
+  prefs.pick = {date: tk, id: f.id}; savePrefs();
+  renderToday();
+  Orbit.setPulse(f.id); setTimeout(() => Orbit.setPulse(null), 2200);
+}
+
+function kindChip(f, k, extra = ''){
+  const K = KINDS[k], like = likesKind(f, k);
+  return `<button class="chip kind${k === 'thought' ? ' thought' : ''}${like ? ' liked' : ''}${extra}" style="--h:${f.hue}" data-act="log" data-id="${f.id}" data-kind="${k}" data-fk="log:${f.id}:${k}"${like ? ` title="${esc(first(f))} likes this"` : ''}>${ico(K.icon)} ${esc(K.label)}</button>`;
+}
+function avatar(f, size = 44){
+  return `<span class="avatar${f.safe ? ' safe' : ''}${f.resting ? ' resting' : ''}" style="--h:${f.hue};--sz:${size}px" aria-hidden="true">${esc(f.glyph || initials(f))}</span>`;
+}
+
+function renderToday(){
+  renderBattery();
+  const el = $('#today-body');
+  if (isLoading()){ el.innerHTML = `<p class="soft-empty">Finding your people…</p>`; return; }
+  const f = todayPick();
+  if (!f){
+    el.innerHTML = state.friends.size
+      ? `<p class="soft-empty">Everyone is resting right now. That's allowed.</p>`
+      : `<p class="soft-empty">Once you add people, one of them will show up here each day. Just one. That's the whole job.</p>`;
+    return;
+  }
+  const d = drift(f), z = zoneOf(d), lc = lastContact(f), lastLog = lastContactLog(f), n = first(f);
+  const done = loggedToday(f);
+  const bd = nextBirthday(f);
+  const lines = [];
+  if (bd && bd.days <= 14) lines.push(['Birthday', bd.days === 0 ? 'Today!' : `In ${bd.days} ${bd.days === 1 ? 'day' : 'days'} (${MONTHS[bd.date.getMonth()]} ${bd.date.getDate()})`]);
+  if (lastLog && lastLog.note) lines.push(['Last time', lastLog.note]);
+  if (f.topics[0]) lines.push(['Ask about', f.topics[0].text]);
+  if (f.memories[0]) lines.push(['Remember', f.memories[0].text]);
+  const who = `<button class="t-who" data-act="open" data-id="${f.id}" data-fk="t-open">${avatar(f, 58)}<span><span class="t-name">${esc(f.name)}</span><span class="t-meta">${[f.pronouns, f.how].filter(Boolean).map(esc).join(' · ') || 'Open their card'}</span></span></button>`;
+  const status = `<p class="muted" style="margin:0"><b>${z.blurb}.</b> ${lc !== null ? `Last in touch ${ago(lc)}${lastLog && lastLog.at === lc ? ` (${KINDS[lastLog.kind].past.toLowerCase()})` : ', roughly'}.` : 'No contact logged yet.'}</p>`;
+  const linesHTML = lines.length ? `<ul class="t-lines">${lines.map(([k, v]) => `<li><span class="k">${k}</span><span>${esc(v)}</span></li>`).join('')}</ul>` : '';
+  withFocus(el, () => {
+    if (done){
+      const last = f.log[0];
+      const replyNote = last && ['text', 'voice', 'react'].includes(last.kind)
+        ? `<p class="fine">If they're slow to reply, it's almost always about their week, not about you.</p>` : '';
+      el.innerHTML = `${who}
+        <p class="t-done">${ico('i-check')} <span>You remembered <b>${esc(n)}</b> today.</span></p>
+        ${replyNote}
+        ${activeFriends().length > 1 ? `<div class="row"><button class="btn ghost small" data-act="next-pick" data-fk="t-next">${ico('i-shuffle')} Someone else? Totally optional.</button></div>` : ''}`;
+      return;
+    }
+    const maxCost = state.energy === null ? 9 : state.energy === 4 ? 9 : state.energy - 1;
+    const kinds = KIND_ORDER.filter(k => KINDS[k].cost <= maxCost);
+    const e = ENERGY.find(x => x.v === state.energy);
+    el.innerHTML = `${who}${status}${linesHTML}
+      <div class="t-do">
+        <p class="q">What feels doable? <span>${e ? esc(e.hint) : 'Set your battery above and this list shrinks to fit.'}</span></p>
+        <div class="chips">${kinds.map(k => kindChip(f, k)).join('')}</div>
+      </div>
+      <div class="row">
+        <button class="btn small" data-act="say" data-id="${f.id}" data-fk="t-say">${ico('i-bubble')} What could I say?</button>
+        ${activeFriends().length > 1 ? `<button class="btn ghost small" data-act="next-pick" data-fk="t-next">${ico('i-shuffle')} Someone else</button>` : ''}
+      </div>
+      <p class="fine">Skipping is fine. It doesn't mean anything about them or you.</p>`;
+  });
+}
+
+const JAR_SLOTS = (() => {
+  const s = []; let row = 0;
+  for (let y = 127; y >= 58; y -= 8.4, row++){
+    for (let x = 27 + (row % 2 ? 4.5 : 0); x <= 94; x += 9){
+      const j = hashStr(`${x.toFixed(1)}:${y.toFixed(1)}`);
+      s.push([x + ((j % 5) - 2) * .45, y + (((j >> 4) % 5) - 2) * .45, (j >> 8) % 360]);
+    }
+  }
+  return s;
+})();
+function renderWins(){
+  const now = Date.now(), wk = now - 7 * DAY;
+  let total = 0, week = 0; const people = new Set(), sparks = [];
+  for (const f of state.friends.values()) for (const l of f.log){
+    total++; sparks.push({at: l.at, hue: f.hue});
+    if (l.at >= wk){ week++; people.add(f.id); }
+  }
+  sparks.sort((a, b) => a.at - b.at);
+  const shown = sparks.slice(-JAR_SLOTS.length);
+  let jar = `<rect class="lid" x="35" y="8" width="50" height="12" rx="4"/>
+    <path class="glass" d="M40 20v6c0 4-22 8-22 26v70c0 8 6 14 14 14h56c8 0 14-6 14-14V52c0-18-22-22-22-26v-6z"/>
+    <defs><path id="jar-star" d="M0-4.4 1.2-1.2 4.4 0 1.2 1.2 0 4.4-1.2 1.2-4.4 0-1.2-1.2z"/></defs>`;
+  shown.forEach((s, i) => { const [x, y, rot] = JAR_SLOTS[i]; jar += `<use href="#jar-star" class="jar-star" style="--h:${s.hue}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rot % 45})"/>`; });
+  jar += `<path class="shine" d="M26 60v48"/>`;
+  $('#jar').innerHTML = jar;
+  $('#jar').setAttribute('aria-label', `Spark jar holding ${total} ${total === 1 ? 'spark' : 'sparks'}`);
+  $('#spark-n').innerHTML = `${total} <small>${total === 1 ? 'spark' : 'sparks'}</small>`;
+  $('#spark-week').textContent = isLoading() ? '' : week
+    ? `This week you remembered ${people.size} ${people.size === 1 ? 'person' : 'people'}${week > people.size ? `, ${week} times` : ''}.`
+    : 'A fresh week. Nothing to catch up on.';
+
+  const ups = activeFriends().map(f => ({f, b: nextBirthday(f)})).filter(x => x.b && x.b.days <= 21).sort((a, b) => a.b.days - b.b.days);
+  const up = $('#upcoming');
+  up.hidden = !ups.length;
+  up.innerHTML = ups.length ? `<p class="eyebrow">Coming up</p>` + ups.map(({f, b}) =>
+    `<button class="up-item" data-act="open" data-id="${f.id}">${ico('i-cake')}<span><b>${esc(first(f))}'s birthday</b> · ${b.days === 0 ? 'today' : b.days === 1 ? 'tomorrow' : `in ${b.days} days`} (${MONTHS[b.date.getMonth()].slice(0, 3)} ${b.date.getDate()})</span></button>`).join('') : '';
+}
+
+function renderHarbor(){
+  const safe = activeFriends().filter(f => f.safe);
+  withFocus($('#harbor-list'), () => {
+    $('#harbor-list').innerHTML = safe.length
+      ? safe.map(f => `<div class="h-person"><button class="h-open" data-act="open" data-id="${f.id}" data-fk="h:${f.id}">${avatar(f, 40)}<span><b>${esc(f.name)}</b><span class="fine">${esc(lastLineText(f))}</span></span></button>${kindChip(f, 'text', ' small')}</div>`).join('')
+      : `<p class="fine">You haven't marked anyone as safe yet. You can do that on anyone's card, whenever you're ready. It's okay if that's no one right now.</p>`;
+  });
+}
+
+function lastLineText(f){
+  const l = lastContactLog(f), lc = lastContact(f), lt = lastThought(f);
+  if (lt !== null && daysBetween(lt, Date.now()) === 0 && (lc === null || daysBetween(lc, Date.now()) > 0)) return 'Thought of them today';
+  if (l && l.at === lc) return `${KINDS[l.kind].past} · ${ago(lc)}`;
+  if (lc !== null) return `Roughly ${ago(lc)}`;
+  return 'No contact logged yet';
+}
+function meter(d){
+  const z = zoneOf(d), x = 11 + 27 * clamp((rf(d) - .17) / .78, 0, 1);
+  return `<span class="meter" title="${z.label}"><svg viewBox="0 0 44 13" aria-hidden="true"><circle cx="5" cy="6.5" r="3.8" class="m-sun"/><line x1="11" y1="6.5" x2="42" y2="6.5" class="m-line"/><circle cx="${x.toFixed(1)}" cy="6.5" r="3.6" class="m-dot"/></svg><span class="m-lab">${z.label}</span></span>`;
+}
+function personCard(f){
+  const d = drift(f), l = lastContactLog(f), lc = lastContact(f);
+  const bd = nextBirthday(f);
+  const hint = f.topics[0] ? ['Ask about', f.topics[0].text] : f.memories[0] ? ['Remember', f.memories[0].text] : null;
+  const lastIcon = l && l.at === lc ? ico(KINDS[l.kind].icon) : '';
+  const open = state.expanded.has(f.id);
+  if (f.resting){
+    return `<article class="person is-resting" data-id="${f.id}" style="--h:${f.hue}">
+      <button class="p-open" data-act="open" data-id="${f.id}" data-fk="open:${f.id}">${avatar(f)}<span class="p-text"><span class="p-name">${esc(f.name)}</span><span class="p-how">${esc(f.restNote || 'Resting')}</span></span></button>
+      <div class="p-acts"><button class="chip small" data-act="rest" data-id="${f.id}" data-fk="wake:${f.id}">Wake up</button></div>
+    </article>`;
+  }
+  return `<article class="person" data-id="${f.id}" style="--h:${f.hue}">
+    <button class="p-open" data-act="open" data-id="${f.id}" data-fk="open:${f.id}" aria-label="Open ${esc(f.name)}'s card">
+      ${avatar(f)}
+      <span class="p-text">
+        <span class="p-name">${esc(f.name)}${f.pronouns ? ` <span class="p-pron">${esc(f.pronouns)}</span>` : ''}${f.example ? ' <span class="tag">example</span>' : ''}</span>
+        ${f.how ? `<span class="p-how">${esc(f.how)}</span>` : ''}
+        <span class="p-last">${lastIcon}<span>${esc(lastLineText(f))}</span>${bd && bd.days <= 14 ? `<span class="bd-badge">${ico('i-cake')} ${bd.days === 0 ? 'birthday today' : `birthday in ${bd.days}d`}</span>` : ''}</span>
+      </span>
+      ${meter(d)}
+    </button>
+    ${hint ? `<p class="p-hint"><b>${hint[0]}</b>${esc(hint[1])}</p>` : ''}
+    <div class="p-acts">
+      ${kindChip(f, 'thought', ' small')}
+      <button class="chip small" data-act="toggle-log" data-id="${f.id}" data-fk="tl:${f.id}" aria-expanded="${open}">${ico('i-bubble')} Log contact</button>
+    </div>
+    <div class="p-logrow"${open ? '' : ' hidden'}>${KIND_ORDER.filter(k => k !== 'thought').map(k => kindChip(f, k, ' small')).join('')}</div>
+  </article>`;
+}
+
+function renderCircleChips(){
+  const circles = [...new Set(allFriends().filter(f => f.circle && !f.resting).map(f => f.circle))].sort();
+  const anySafe = activeFriends().some(f => f.safe);
+  if (state.circle !== 'all' && state.circle !== 'safe' && !circles.includes(state.circle)) state.circle = 'all';
+  const chips = [['all', 'Everyone'], ...(anySafe ? [['safe', 'Safe people']] : []), ...circles.map(c => [c, c[0].toUpperCase() + c.slice(1)])];
+  withFocus($('#circle-chips'), () => {
+    $('#circle-chips').innerHTML = chips.length > 1 ? chips.map(([v, l]) => `<button class="chip small" data-act="circle" data-v="${esc(v)}" data-fk="c:${esc(v)}" aria-pressed="${state.circle === v}">${v === 'safe' ? ico('i-anchor') : ''}${esc(l)}</button>`).join('') : '';
+  });
+  const defaults = ['family', 'school', 'work', 'online', 'old friends', 'neighbours'];
+  $('#circle-list').innerHTML = [...new Set([...circles, ...defaults])].map(c => `<option value="${esc(c)}"></option>`).join('');
+}
+
+function renderPeople(){
+  const list = $('#people-list');
+  const all = allFriends();
+  const active = all.filter(f => !f.resting), resting = all.filter(f => f.resting);
+  const ex = all.filter(f => f.example).length;
+  $('#example-banner').hidden = !ex;
+  $('#example-text').textContent = ex ? `${ex === 1 ? 'This is an example person' : `These ${ex} are example people`} so you can see how everything works. Add your own whenever you like.` : '';
+  $('#people-count').textContent = isLoading() ? '' : all.length
+    ? `${active.length} in your orbit${resting.length ? `, ${resting.length} resting` : ''}.`
+    : '';
+  $('#toolbar').hidden = !active.length;
+  renderCircleChips();
+  $('#sort').value = state.sort;
+
+  if (isLoading()){ list.innerHTML = `<p class="fine" style="margin-top:18px">Finding your people…</p>`; $('#resting').hidden = true; $('#filter-note').hidden = true; return; }
+  if (!all.length){
+    list.innerHTML = `<div class="empty"><h3>Nobody here yet, and that's okay.</h3><p>Start with one name. A cousin, an old roommate, someone from a Discord server, the coworker you actually liked. They all count.</p><button class="btn" data-act="examples">Try it with example people first</button></div>`;
+    $('#resting').hidden = true; $('#filter-note').hidden = true; return;
+  }
+
+  const q = state.search.trim().toLowerCase();
+  let items = active;
+  if (state.circle === 'safe') items = items.filter(f => f.safe);
+  else if (state.circle !== 'all') items = items.filter(f => f.circle === state.circle);
+  if (state.zone) items = items.filter(f => zoneOf(drift(f)).key === state.zone);
+  if (q) items = items.filter(f => [f.name, f.how, f.circle, f.pronouns, ...f.memories.map(m => m.text), ...f.topics.map(t => t.text)].join(' ').toLowerCase().includes(q));
+
+  const filters = [];
+  if (state.zone) filters.push(ZONES.find(z => z.key === state.zone).label.toLowerCase());
+  if (state.circle === 'safe') filters.push('safe people');
+  else if (state.circle !== 'all') filters.push(state.circle);
+  if (q) filters.push(`"${state.search.trim()}"`);
+  const fn = $('#filter-note');
+  fn.hidden = !filters.length;
+  fn.innerHTML = filters.length ? `<span>Showing ${esc(filters.join(', '))} · ${items.length} ${items.length === 1 ? 'person' : 'people'}</span><button class="btn ghost small" data-act="clear-filters">Show everyone</button>` : '';
+
+  withFocus(list, () => {
+    if (!items.length){
+      list.innerHTML = active.length ? `<p class="fine" style="margin-top:18px">No one matches that right now.</p>` : `<p class="fine" style="margin-top:18px">Everyone is resting. Wake anyone below when you're ready.</p>`;
+    } else if (state.sort === 'az' || state.sort === 'new'){
+      const s = items.slice().sort(state.sort === 'az' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.createdAt - a.createdAt);
+      list.innerHTML = `<div class="grid" style="margin-top:18px">${s.map(personCard).join('')}</div>`;
+    } else {
+      const order = state.sort === 'orbit' ? ['close', 'orbit', 'drift', 'far'] : ['drift', 'far', 'orbit', 'close'];
+      list.innerHTML = order.map(key => {
+        const z = ZONES.find(x => x.key === key);
+        const g = items.filter(f => zoneOf(drift(f)).key === key).sort((a, b) => state.sort === 'orbit' ? drift(a) - drift(b) : drift(b) - drift(a));
+        if (!g.length) return '';
+        return `<div class="zone-h z-${key}"><h3><span class="zdot"></span>${z.label}</h3><p>${z.blurb} · ${g.length}</p></div><div class="grid">${g.map(personCard).join('')}</div>`;
+      }).join('');
+    }
+  });
+
+  $('#resting').hidden = !resting.length;
+  $('#resting-n').textContent = resting.length ? `(${resting.length})` : '';
+  withFocus($('#resting-list'), () => { $('#resting-list').innerHTML = resting.map(personCard).join(''); });
+}
+
+function renderStatus(){
+  const st = $('#status'), tx = $('#status-text');
+  st.className = 'status';
+  if (Store.mode === 'loading' || (Store.mode === 'db' && !Store.gotFirst)){ tx.textContent = 'Connecting…'; return; }
+  if (Store.mode === 'db'){ st.classList.add('ok'); tx.textContent = 'Saved to your account. Only you can see it, on any device.'; return; }
+  st.classList.add('local');
+  tx.textContent = Store.localFail
+    ? "This browser won't let the page save. Use Back up so nothing gets lost."
+    : (Store.note ? Store.note + ' ' : '') + 'Saved in this browser only. Back up now and then.';
+}
+
+/* ---------- drawer ---------- */
+let lastFocus = null;
+function openDrawer(id, section){
+  const f = state.friends.get(id); if (!f) return;
+  if (state.openId !== id){ state.noteFor = null; state.showAllLog = false; state.confirmDelete = false; }
+  if (!state.openId) lastFocus = document.activeElement;
+  state.openId = id; state.openSection = section || null;
+  $('#scrim').hidden = false; $('#drawer').hidden = false;
+  document.body.style.overflow = 'hidden';
+  renderDrawer();
+  const d = $('#drawer');
+  if (section){ const s = $('#d-' + section); if (s) s.scrollIntoView({block: 'start'}); }
+  else d.scrollTop = 0;
+  const closeBtn = d.querySelector('[data-act="close"]'); if (closeBtn) closeBtn.focus({preventScroll: true});
+  Orbit.setPulse(id);
+}
+function closeDrawer(){
+  if (!state.openId) return;
+  state.openId = null; state.noteFor = null; state.confirmDelete = false;
+  if (draft && draft.ctl) try { draft.ctl.abort(); } catch (e) {}
+  draft = null;
+  $('#scrim').hidden = true; $('#drawer').hidden = true; $('#drawer').innerHTML = '';
+  document.body.style.overflow = '';
+  Orbit.setPulse(null);
+  if (lastFocus && document.contains(lastFocus)) lastFocus.focus({preventScroll: true});
+  lastFocus = null;
+}
+
+function messageIdeas(f){
+  const n = first(f), topic = f.topics[0] && f.topics[0].text;
+  const lc = lastContact(f), long = lc === null || (Date.now() - lc) / DAY > 45;
+  const bd = nextBirthday(f), out = [];
+  if (bd && bd.days === 0) out.push(`Happy birthday, ${n}! Hope today is gentle and good to you.`);
+  else if (bd && bd.days <= 7) out.push(`Hey ${n}! Your birthday is coming up and I didn't want to forget. Any plans?`);
+  if (topic) out.push(`Hey ${n}! I was just thinking about ${topic}. How's that going? No rush to answer.`);
+  out.push(`Hey ${n}, you crossed my mind today. No need to reply, just sending a wave.`);
+  if (long) out.push(`Hi ${n}! It's been a while and I didn't want it to be longer. I'd love to hear how you're doing, whenever you have the space.`);
+  if (f.channels.includes('memes') || f.channels.includes('social')) out.push(`Saw this and immediately thought of you 😄`);
+  else out.push(`Saw something today that reminded me of you and it made me smile. Hope your week is being kind to you.`);
+  if (f.channels.includes('games')) out.push(`Hey ${n}, up for a game sometime this week? Totally fine if not.`);
+  else if (f.channels.includes('irl') && !long) out.push(`Want to get a coffee or go for a walk sometime soon? Zero pressure.`);
+  return out.slice(0, 5);
+}
+function ideaHTML(f, text, ai){
+  return `<div class="idea${ai ? ' ai' : ''}"><p>${esc(text)}</p><button class="chip small" data-act="copy-idea" data-id="${f.id}" data-text="${esc(text)}" data-fk="copy:${hashStr(text)}">${ico('i-copy')} Copy</button></div>`;
+}
+function draftsHTML(f){
+  if (!state.sample || state.sampleOff) return '';
+  const cur = draft && draft.id === f.id ? draft : null;
+  let body = '';
+  if (cur && cur.status === 'loading') body = `<p class="fine pulse">${cur.text ? esc(cur.text) : 'Claude is writing a few options…'}</p>`;
+  else if (cur && cur.status === 'done') body = `<div class="ideas" style="width:100%">${cur.items.map(t => ideaHTML(f, t, true)).join('')}</div>`;
+  else if (cur && cur.status === 'error') body = `<p class="fine">${esc(cur.msg)}</p>`;
+  return `<div class="draft-box">
+    <button class="btn small" data-act="draft" data-id="${f.id}" data-fk="draft"${cur && cur.status === 'loading' ? ' disabled' : ''}>${ico('i-spark')} ${cur && cur.status === 'done' ? 'Write a few more' : 'Ask Claude for drafts'}</button>
+    <p class="fine">Sends ${esc(first(f))}'s notes from this card to Claude so the drafts sound like the two of you.</p>
+    ${body}</div>`;
+}
+function renderDrafts(){
+  const f = state.openId && state.friends.get(state.openId);
+  const el = $('#drafts');
+  if (f && el) withFocus(el, () => { el.innerHTML = draftsHTML(f); });
+}
+function listEdit(f, key, tag, ph){
+  const items = f[key], isTopic = key === 'topics';
+  return `<ul class="lst">${items.map(it => `<li><span>${esc(it.text)}</span><button class="icon-btn sm" data-act="del-item" data-id="${f.id}" data-k="${key}" data-v="${esc(it.id)}" data-fk="di:${esc(it.id)}" aria-label="${isTopic ? 'Mark as asked' : 'Remove'}: ${esc(it.text)}" title="${isTopic ? 'Asked about it' : 'Remove'}">${ico(isTopic ? 'i-check' : 'i-x')}</button></li>`).join('')}</ul>
+    <form class="add-line" data-form="item" data-id="${f.id}" data-k="${key}" autocomplete="off"><label class="sr" for="add-${tag}">Add</label><input class="field" id="add-${tag}" name="text" maxlength="160" placeholder="${esc(ph)}" data-fk="add-${tag}"><button class="btn small" aria-label="Add">${ico('i-plus')}</button></form>`;
+}
+function logItem(f, l){
+  const k = KINDS[l.kind], dt = new Date(l.at);
+  return `<li class="tl"><span class="tl-ico">${ico(k.icon)}</span><div class="tl-body"><p><b>${esc(k.past)}</b><time datetime="${dt.toISOString()}" title="${esc(dt.toLocaleString())}">${esc(ago(l.at))}</time></p>${l.note ? `<p class="tl-note">${esc(l.note)}</p>` : ''}</div><button class="icon-btn sm" data-act="del-log" data-id="${f.id}" data-v="${esc(l.id)}" data-fk="dl:${esc(l.id)}" aria-label="Remove this moment">${ico('i-x')}</button></li>`;
+}
+function switchBtn(act, on, id, label){
+  return `<button class="switch" role="switch" aria-checked="${on}" aria-label="${esc(label)}" data-act="${act}" data-id="${id}" data-fk="sw:${act}"><span class="knob"></span></button>`;
+}
+
+function drawerHTML(f){
+  const d = drift(f), z = zoneOf(d), lc = lastContact(f), lastC = lastContactLog(f), n = first(f);
+  const logShown = state.showAllLog ? f.log : f.log.slice(0, 12);
+  const noteEntry = state.noteFor ? f.log.find(l => l.id === state.noteFor) : null;
+  const bdM = f.birthday ? f.birthday.m : '', bdD = f.birthday ? f.birthday.d : '';
+  return `<div style="--h:${f.hue}">
+  <div class="d-head">
+    ${avatar(f, 64)}
+    <div class="d-id">
+      <input id="d-name" class="d-name" data-field="name" data-fk="f-name" value="${esc(f.name)}" maxlength="60" autocomplete="off" aria-label="Name">
+      <div class="d-sub">
+        <input class="bare pron" data-field="pronouns" data-fk="f-pron" placeholder="pronouns" value="${esc(f.pronouns)}" maxlength="30" aria-label="Pronouns">
+        <input class="bare grow" data-field="how" data-fk="f-how" placeholder="how you know them" value="${esc(f.how)}" maxlength="80" aria-label="How you know them">
+      </div>
+    </div>
+    <button class="icon-btn" data-act="close" data-fk="close" aria-label="Close">${ico('i-x')}</button>
+  </div>
+  ${f.example ? `<p class="d-example">This is an example person. Change anything you like, or clear all the examples from the list.</p>` : ''}
+  <div class="d-status">
+    ${meter(d)}
+    <p><b>${z.label}.</b> ${lc !== null ? `Last in touch ${esc(ago(lc))}${lastC && lastC.at === lc ? ` (${esc(KINDS[lastC.kind].past.toLowerCase())})` : ', roughly'}.` : 'No contact logged yet.'}</p>
+    <p class="fine">Thinking of someone keeps them in orbit. Talking brings them close. Nobody falls out.</p>
+  </div>
+
+  <section class="d-sec" aria-labelledby="d-log-h">
+    <h3 id="d-log-h" class="eyebrow">Log something</h3>
+    <div class="chips">${KIND_ORDER.map(k => kindChip(f, k)).join('')}</div>
+    ${noteEntry ? `<form class="note-form" data-form="note" data-id="${f.id}" data-v="${esc(noteEntry.id)}" autocomplete="off">
+        <label for="d-note">Anything to remember from that? <span class="fine">Optional</span></label>
+        <div class="row"><input class="field" id="d-note" name="note" maxlength="280" placeholder="e.g. they're job hunting, loved the meme" data-fk="d-note"><button class="btn small primary">Save</button><button type="button" class="btn small ghost" data-act="skip-note">Skip</button></div>
+      </form>` : ''}
+    ${lc === null ? `<div style="display:grid;gap:8px"><p class="fine">Roughly when did you last talk? A guess is fine.</p><div class="chips">
+        ${[['week', 'This week'], ['month', 'This month'], ['months', 'A few months ago'], ['ages', 'Ages ago']].map(([v, l]) => `<button class="chip small" data-act="approx" data-id="${f.id}" data-v="${v}" data-fk="ap:${v}">${l}</button>`).join('')}
+      </div></div>` : ''}
+  </section>
+
+  <section class="d-sec" id="d-ideas" aria-labelledby="d-ideas-h">
+    <h3 id="d-ideas-h" class="eyebrow">What could I say?</h3>
+    <div class="ideas">${messageIdeas(f).map(t => ideaHTML(f, t, false)).join('')}</div>
+    <div id="drafts">${draftsHTML(f)}</div>
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-mem-h">
+    <h3 id="d-mem-h" class="eyebrow">Things to remember</h3>
+    ${listEdit(f, 'memories', 'mem', 'e.g. cat named Pickle, hates phone calls')}
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-top-h">
+    <h3 id="d-top-h" class="eyebrow">Ask about next time</h3>
+    ${listEdit(f, 'topics', 'topic', 'e.g. the new job, their trip to Lisbon')}
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-ch-h">
+    <h3 id="d-ch-h" class="eyebrow">How they like to connect</h3>
+    <div class="chips">${Object.entries(CHANNELS).map(([k, v]) => `<button class="chip small" data-act="channel" data-id="${f.id}" data-v="${k}" data-fk="ch:${k}" aria-pressed="${f.channels.includes(k)}">${esc(v)}</button>`).join('')}</div>
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-rh-h">
+    <h3 id="d-rh-h" class="eyebrow">How often feels right?</h3>
+    <div class="chips" role="radiogroup" aria-labelledby="d-rh-h">${Object.entries(RHYTHMS).map(([k, r]) => `<button class="chip small" role="radio" aria-checked="${f.rhythm === k}" data-act="rhythm" data-id="${f.id}" data-v="${k}" data-fk="rh:${k}">${esc(r.label)}</button>`).join('')}</div>
+    <p class="fine">This only changes how slowly ${esc(n)} drifts. Nothing here ever expires.</p>
+  </section>
+
+  <section class="d-sec d-grid">
+    <div><label class="eyebrow" for="d-circle">Circle</label><input class="field" id="d-circle" list="circle-list" data-field="circle" data-fk="f-circle" value="${esc(f.circle)}" placeholder="family, school, online…" maxlength="30" autocomplete="off"></div>
+    <div><span class="eyebrow" id="d-bd-l">Birthday</span><div class="bd">
+      <select class="field" data-field="bmonth" data-fk="f-bm" aria-label="Birthday month"><option value="">Month</option>${MONTHS.map((m, i) => `<option value="${i + 1}"${bdM === i + 1 ? ' selected' : ''}>${m}</option>`).join('')}</select>
+      <select class="field" data-field="bday" data-fk="f-bd" aria-label="Birthday day"><option value="">Day</option>${Array.from({length: 31}, (_, i) => `<option value="${i + 1}"${bdD === i + 1 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select>
+    </div></div>
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-col-h">
+    <h3 id="d-col-h" class="eyebrow">Their color in your sky</h3>
+    <div class="swatches">${HUES.map(h => `<button class="swatch" style="--h:${h}" data-act="hue" data-id="${f.id}" data-v="${h}" data-fk="hue:${h}" aria-label="${HUE_NAMES[h]}" aria-pressed="${f.hue === h}"></button>`).join('')}</div>
+    <label class="glyph-l"><span>Initials or an emoji for their bubble</span><input class="field" data-field="glyph" data-fk="f-glyph" value="${esc(f.glyph)}" placeholder="${esc(initials(f))}" maxlength="8"></label>
+  </section>
+
+  <section class="d-sec">
+    <div class="switch-row"><div><p class="sw-t">${ico('i-anchor')} Safe person</p><p class="fine">Someone who feels okay to reach out to on hard days. They stay lit up in hard day mode.</p></div>${switchBtn('safe', f.safe, f.id, 'Safe person')}</div>
+    <div class="switch-row"><div><p class="sw-t">${ico('i-moon')} Resting</p><p class="fine">Put ${esc(n)} down for now. They won't be suggested or shown in your orbit. Nothing is deleted.</p></div>${switchBtn('rest', f.resting, f.id, 'Resting')}</div>
+    ${f.resting ? `<input class="field" data-field="restNote" data-fk="f-rest" placeholder="A private note to yourself (optional)" value="${esc(f.restNote)}" maxlength="120" aria-label="Note about resting">` : ''}
+  </section>
+
+  <section class="d-sec" aria-labelledby="d-mo-h">
+    <h3 id="d-mo-h" class="eyebrow">Moments</h3>
+    ${f.log.length
+      ? `<ol class="timeline">${logShown.map(l => logItem(f, l)).join('')}</ol>${!state.showAllLog && f.log.length > 12 ? `<div><button class="btn ghost small" data-act="show-all-log">Show all ${f.log.length}</button></div>` : ''}`
+      : `<p class="fine">Nothing logged yet. Everything you log lands here, like a small diary of your friendship.</p>`}
+  </section>
+
+  <section class="d-sec d-danger">
+    ${state.confirmDelete
+      ? `<p>Remove ${esc(n)} and everything you wrote about them?</p><div class="row"><button class="btn" data-act="cancel-delete" data-fk="cancel-del">Keep ${esc(n)}</button><button class="btn danger" data-act="delete" data-id="${f.id}" data-fk="del">Remove</button></div><p class="fine">If you just need some distance, Resting is gentler.</p>`
+      : `<button class="btn ghost small" data-act="ask-delete" data-fk="ask-del">${ico('i-trash')} Remove from orbit</button>`}
+  </section>
+  </div>`;
+}
+function renderDrawer(){
+  const f = state.openId && state.friends.get(state.openId);
+  if (!f){ closeDrawer(); return; }
+  const d = $('#drawer'), top = d.scrollTop;
+  withFocus(d, () => { d.innerHTML = drawerHTML(f); });
+  d.scrollTop = top;
+}
+
+/* ---------- actions ---------- */
+function logKind(id, kind){
+  const f = state.friends.get(id); if (!f || !KINDS[kind]) return;
+  const entry = {id: uid('l'), kind, at: Date.now(), note: ''};
+  f.log.unshift(entry);
+  if (f.log.length > 200) f.log.length = 200;
+  if (state.openId === id) state.noteFor = entry.id;
+  state.expanded.delete(id);
+  commit(f);
+  Orbit.burst(id, KINDS[kind].contact);
+  const card = document.querySelector(`.person[data-id="${CSS.escape(id)}"]`);
+  if (card){ card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash'); }
+  const line = pickOne(kind === 'thought' ? THOUGHT_LINES : CONTACT_LINES).replace('{n}', first(f));
+  toast(line, {undo: () => {
+    const g = state.friends.get(id); if (!g) return;
+    g.log = g.log.filter(l => l.id !== entry.id);
+    if (state.noteFor === entry.id) state.noteFor = null;
+    commit(g);
+  }});
+  if (state.openId === id) setTimeout(() => { const n = $('#d-note'); if (n) n.focus({preventScroll: false}); }, 30);
+}
+
+function leastUsedHue(){
+  const count = new Map(HUES.map(h => [h, 0]));
+  allFriends().forEach(f => { if (count.has(f.hue)) count.set(f.hue, count.get(f.hue) + 1); });
+  let best = HUES[0];
+  for (const h of HUES) if (count.get(h) < count.get(best)) best = h;
+  return best;
+}
+function addFriend(name, how){
+  const f = normFriend({id: uid('f'), name, how, hue: leastUsedHue(), createdAt: Date.now()});
+  if (!f) return null;
+  commit(f);
+  toast(`${first(f)} is in your orbit now.`, {
+    action: {label: 'Add details', fn: () => openDrawer(f.id)},
+    undo: () => { state.friends.delete(f.id); Store.persist(f.id); renderAll(); },
+  });
+  return f;
+}
+function addMany(text){
+  const have = new Set(allFriends().map(f => f.name.toLowerCase()));
+  const names = [...new Set(text.split(/[\n,;]+/).map(s => s.trim().slice(0, 60)).filter(Boolean))].filter(n => !have.has(n.toLowerCase())).slice(0, 300);
+  if (!names.length){ toast('Everyone on that list is already in your orbit.'); return; }
+  const added = [];
+  names.forEach((name, i) => {
+    const f = normFriend({id: uid('f'), name, hue: leastUsedHue(), createdAt: Date.now() + i});
+    if (f){ state.friends.set(f.id, f); Store.persist(f.id); added.push(f.id); }
+  });
+  renderAll();
+  toast(`Added ${added.length} ${added.length === 1 ? 'person' : 'people'}. They're all in your sky now.`, {undo: () => {
+    added.forEach(id => { state.friends.delete(id); Store.persist(id); }); renderAll();
+  }});
+}
+
+/*EXAMPLES-START*/
+function makeExamples(now){
+  const d = n => now - n * DAY;
+  const L = (kind, daysAgo, note) => ({id: uid('l'), kind, at: d(daysAgo), note: note || ''});
+  const N = text => ({id: uid('n'), text});
+  const soon = new Date(now + 6 * DAY);
+  return [
+    {name:'Sam Okafor', pronouns:'they/them', how:'art school, still makes zines', circle:'school', hue:198, rhythm:'fortnight', channels:['memes','text'],
+     memories:[N('Cat named Pickle'), N('Phone calls stress them out, texts are best')], topics:[N('the zine launch')],
+     log:[L('text', 19, 'They were nervous about the zine launch'), L('react', 33)], safe:true, createdAt:d(120)},
+    {name:'Priya Nair', pronouns:'she/her', how:'old roommate', circle:'old friends', hue:318, rhythm:'monthly', channels:['calls','voice'],
+     memories:[N('Moved to Leeds in the spring')], topics:[N('the new flat')],
+     log:[L('call', 9, 'Talked for an hour. She sounds happier.')], birthday:{m: soon.getMonth() + 1, d: soon.getDate()}, createdAt:d(118)},
+    {name:'Marcus Bell', pronouns:'he/him', how:'Friday game nights on Discord', circle:'online', hue:222, rhythm:'weekly', channels:['games','memes'],
+     memories:[N('Always plays support')], topics:[], log:[L('game', 3), L('they', 10)], safe:true, createdAt:d(116)},
+    {name:'Auntie Rose', pronouns:'she/her', how:'family, the good auntie', circle:'family', hue:12, rhythm:'monthly', channels:['calls','letters'],
+     memories:[N('Loves getting real post')], topics:[N('her tomato plants')], log:[L('call', 74)], createdAt:d(114)},
+    {name:'Noor Haddad', pronouns:'she/they', how:'climbing gym', circle:'climbing', hue:150, rhythm:'fortnight', channels:['irl','text'],
+     memories:[], topics:[N('the comp in November')], log:[L('thought', 2), L('hang', 41, 'Bouldering, then tacos')], createdAt:d(110)},
+    {name:'Jules Moreau', pronouns:'he/him', how:'work, the good one', circle:'work', hue:282, rhythm:'seasonal', channels:['text'],
+     memories:[N('Just had a baby')], topics:[], log:[], approxLast:d(100), createdAt:d(60)},
+    {name:'Dev Patel', pronouns:'he/him', how:'college', circle:'school', hue:28, rhythm:'monthly', channels:['text'],
+     memories:[], topics:[], log:[], resting:true, restNote:'Taking some space for now', createdAt:d(100)},
+  ].map(r => normFriend({...r, id: uid('f'), example: true, updatedAt: now}));
+}
+/*EXAMPLES-END*/
+function addExamples(){
+  const ex = makeExamples(Date.now());
+  ex.forEach(f => { state.friends.set(f.id, f); Store.persist(f.id); });
+  renderAll();
+  toast('Example people added. Clear them whenever you like.', {undo: () => { ex.forEach(f => { state.friends.delete(f.id); Store.persist(f.id); }); renderAll(); }});
+}
+function clearExamples(){
+  const ex = allFriends().filter(f => f.example);
+  if (!ex.length) return;
+  if (ex.some(f => f.id === state.openId)) closeDrawer();
+  ex.forEach(f => { state.friends.delete(f.id); Store.persist(f.id); });
+  renderAll();
+  toast(`Cleared ${ex.length} example ${ex.length === 1 ? 'person' : 'people'}.`, {undo: () => { ex.forEach(f => { state.friends.set(f.id, f); Store.persist(f.id); }); renderAll(); }});
+}
+function toggleRest(id){
+  const f = edit(id, g => { g.resting = !g.resting; });
+  if (!f) return;
+  toast(f.resting ? `${first(f)} is resting. They won't be suggested or shown in your orbit.` : `${first(f)} is back in your orbit.`,
+    {undo: () => edit(id, g => { g.resting = !g.resting; })});
+}
+function deleteFriend(id){
+  const f = state.friends.get(id); if (!f) return;
+  closeDrawer();
+  state.friends.delete(id); Store.persist(id); renderAll();
+  toast(`Removed ${first(f)}.`, {undo: () => { state.friends.set(f.id, f); Store.persist(f.id); renderAll(); }});
+}
+function setEnergy(v){
+  state.energy = state.energy === v ? null : v;
+  prefs.energy = {date: dayKey(), v: state.energy}; savePrefs();
+  renderToday();
+}
+function applyHardDay(){
+  document.body.classList.toggle('hardday', state.hardDay);
+  $('#hard-btn').setAttribute('aria-checked', String(state.hardDay));
+  Orbit.setDim(state.hardDay);
+}
+function setHardDay(on){
+  state.hardDay = on; prefs.hardDay = on; savePrefs();
+  applyHardDay(); renderAll();
+}
+
+async function copyText(text){
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove(); return ok;
+  }
+}
+async function copyIdea(id, text){
+  const f = state.friends.get(id);
+  const ok = await copyText(text);
+  if (!ok){ toast("Couldn't copy automatically. Press and hold the message to select it."); return; }
+  toast(f ? `Copied. Paste it wherever you talk to ${first(f)}.` : 'Copied.', f ? {action: {label: 'I sent it', fn: () => logKind(id, 'text')}} : {});
+}
+
+function buildPrompt(f){
+  const lc = lastContact(f);
+  const e = ENERGY.find(x => x.v === state.energy);
+  const parts = [
+    'You help someone with ADHD and CPTSD reach out to a friend without pressure or guilt.',
+    `Write 3 short, warm messages they could send to their friend ${first(f)}${f.pronouns ? ` (${f.pronouns})` : ''}.`,
+    'Rules: casual and kind, one or two sentences each. No guilt-tripping and no big apologies for being quiet. At least one message should say no reply is needed. Only use facts from the notes below; do not invent details. Match how the friend likes to talk.',
+    e ? `The sender's energy today is "${e.label}", so keep it ${state.energy <= 2 ? 'very low effort' : 'easy'}.` : '',
+    'Notes about the friend:',
+    f.how ? `- How they know each other: ${f.how}` : '',
+    f.channels.length ? `- Likes: ${f.channels.map(c => CHANNELS[c]).join(', ')}` : '',
+    `- Last in touch: ${lc === null ? 'unknown' : ago(lc)}`,
+    f.memories.length ? `- Things to remember: ${f.memories.map(m => m.text).join('; ')}` : '',
+    f.topics.length ? `- Things to ask about: ${f.topics.map(t => t.text).join('; ')}` : '',
+    f.log[0] && f.log[0].note ? `- Last time: ${f.log[0].note}` : '',
+    'Reply with only a JSON array of 3 strings.',
+  ];
+  return parts.filter(Boolean).join('\n');
+}
+async function draftWithClaude(id){
+  const f = state.friends.get(id), s = state.sample;
+  if (!f || !s) return;
+  if (draft && draft.ctl) try { draft.ctl.abort(); } catch (e) {}
+  const mine = {id, status: 'loading', items: [], text: '', ctl: new AbortController()};
+  draft = mine; renderDrafts();
+  try {
+    const res = await s.json(buildPrompt(f), {modelTier: 'quick', cache: false, signal: mine.ctl.signal});
+    if (draft !== mine) return;
+    const items = Array.isArray(res) ? res.filter(x => typeof x === 'string' && x.trim()).slice(0, 4).map(x => x.trim().slice(0, 400)) : [];
+    draft = items.length ? {id, status: 'done', items} : {id, status: 'error', msg: 'Claude came back empty-handed. The ideas above still work.'};
+  } catch (e) {
+    if (draft !== mine || (e && e.code === 'cancelled')) return;
+    const code = e && e.code;
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) state.sampleOff = true;
+    const msg = {
+      not_granted: "Claude drafting wasn't allowed here. The ideas above still work.",
+      rate_limited: 'Claude needs a short breather. Try again in a minute.',
+      refused: "Claude couldn't help with that one. The ideas above still work.",
+    }[code] || "Couldn't get drafts right now. The ideas above still work.";
+    draft = {id, status: 'error', msg};
+    if (state.sampleOff) toast(msg);
+  }
+  renderDrafts();
+}
+
+async function backup(){
+  const data = JSON.stringify({app: 'friend-orbit', version: 1, exportedAt: new Date().toISOString(), friends: allFriends()}, null, 2);
+  const filename = `friend-orbit-backup-${dayKey()}.json`;
+  if (state.downloads){
+    try { await state.downloads.save({filename, data}); toast('Backup saved.'); return; }
+    catch (e) { if (e && e.code === 'declined'){ toast('No backup saved. That is fine.'); return; } }
+  }
+  if (!window.claude){
+    const url = URL.createObjectURL(new Blob([data], {type: 'application/json'}));
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    toast('Backup downloaded. Keep it somewhere safe.');
+    return;
+  }
+  const ok = await copyText(data);
+  toast(ok ? 'Backup copied to your clipboard. Paste it into a note to keep it safe.' : "Couldn't make a backup here.");
+}
+function importText(text){
+  let arr = null;
+  try { const p = JSON.parse(text); arr = Array.isArray(p) ? p : (p && Array.isArray(p.friends) ? p.friends : null); } catch (e) {}
+  if (!arr){ toast("That file isn't a Friend Orbit backup. Nothing was changed."); return; }
+  let added = 0, updated = 0;
+  for (const r of arr.slice(0, 2000)){
+    const f = normFriend(r); if (!f) continue;
+    const cur = state.friends.get(f.id);
+    if (cur && cur.updatedAt >= f.updatedAt) continue;
+    cur ? updated++ : added++;
+    state.friends.set(f.id, f); Store.persist(f.id);
+  }
+  renderAll();
+  toast(added || updated
+    ? `Brought back ${added} ${added === 1 ? 'person' : 'people'}${updated ? ` and updated ${updated}` : ''}.`
+    : 'Everyone in that backup is already here.');
+}
+
+/* ---------- toast ---------- */
+let toastTimer = 0, toastHandlers = null;
+function hideToast(){ clearTimeout(toastTimer); $('#toast').hidden = true; toastHandlers = null; }
+function toast(msg, opts = {}){
+  const el = $('#toast');
+  toastHandlers = opts;
+  el.innerHTML = `<span>${esc(msg)}</span>${opts.action ? `<button type="button" data-t="action">${esc(opts.action.label)}</button>` : ''}${opts.undo ? `<button type="button" data-t="undo">Undo</button>` : ''}`;
+  el.hidden = false; el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, opts.undo || opts.action ? 9000 : 5000);
+}
+$('#toast').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !toastHandlers) return;
+  const h = toastHandlers; hideToast();
+  if (b.dataset.t === 'undo' && h.undo) h.undo();
+  if (b.dataset.t === 'action' && h.action) h.action.fn();
+});
+$('#toast').addEventListener('mouseenter', () => clearTimeout(toastTimer));
+$('#toast').addEventListener('mouseleave', () => { clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, 4000); });
+
+/* ---------- events ---------- */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const act = el.dataset.act, id = el.dataset.id, v = el.dataset.v;
+  switch (act){
+    case 'open': openDrawer(id); break;
+    case 'close': closeDrawer(); break;
+    case 'log': logKind(id, el.dataset.kind); break;
+    case 'toggle-log': state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); renderPeople(); break;
+    case 'zone':
+      state.zone = state.zone === el.dataset.zone ? null : el.dataset.zone;
+      renderLegend(); renderPeople();
+      if (state.zone && !state.hardDay) $('#people').scrollIntoView({behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start'});
+      break;
+    case 'circle': state.circle = v; renderPeople(); break;
+    case 'clear-filters': state.zone = null; state.circle = 'all'; state.search = ''; $('#search').value = ''; renderLegend(); renderPeople(); break;
+    case 'energy': setEnergy(Number(v)); break;
+    case 'next-pick': nextPick(); break;
+    case 'say': openDrawer(id, 'ideas'); break;
+    case 'examples': addExamples(); break;
+    case 'clear-examples': clearExamples(); break;
+    case 'hue': edit(id, f => { f.hue = Number(v); }); break;
+    case 'rhythm': edit(id, f => { f.rhythm = v; }); break;
+    case 'channel': edit(id, f => { f.channels = f.channels.includes(v) ? f.channels.filter(c => c !== v) : [...f.channels, v]; }); break;
+    case 'approx': edit(id, f => { f.approxLast = Date.now() - APPROX[v] * DAY; }); break;
+    case 'safe': {
+      const f = edit(id, g => { g.safe = !g.safe; });
+      if (f && f.safe) toast(`${first(f)} is marked as a safe person.`);
+      break;
+    }
+    case 'rest': toggleRest(id); break;
+    case 'del-item': {
+      const k = el.dataset.k;
+      const f = state.friends.get(id); if (!f || !Array.isArray(f[k])) break;
+      const idx = f[k].findIndex(x => x.id === v); if (idx < 0) break;
+      const [item] = f[k].splice(idx, 1);
+      commit(f);
+      toast(k === 'topics' ? 'Nice. Crossed that off.' : 'Removed.', {undo: () => edit(id, g => { g[k].splice(Math.min(idx, g[k].length), 0, item); })});
+      break;
+    }
+    case 'del-log': {
+      const f = state.friends.get(id); if (!f) break;
+      const idx = f.log.findIndex(l => l.id === v); if (idx < 0) break;
+      const [entry] = f.log.splice(idx, 1);
+      if (state.noteFor === v) state.noteFor = null;
+      commit(f);
+      toast('Moment removed.', {undo: () => edit(id, g => { g.log.push(entry); g.log.sort((a, b) => b.at - a.at); })});
+      break;
+    }
+    case 'skip-note': state.noteFor = null; renderDrawer(); break;
+    case 'show-all-log': state.showAllLog = true; renderDrawer(); break;
+    case 'ask-delete': state.confirmDelete = true; renderDrawer(); { const b = $('[data-fk="cancel-del"]'); if (b) b.focus(); } break;
+    case 'cancel-delete': state.confirmDelete = false; renderDrawer(); break;
+    case 'delete': deleteFriend(id); break;
+    case 'copy-idea': copyIdea(id, el.dataset.text); break;
+    case 'copy-plain': copyText(el.dataset.text).then(ok => toast(ok ? 'Copied. Send it to whoever feels right, or no one.' : "Couldn't copy automatically. Press and hold the message to select it.")); break;
+    case 'draft': draftWithClaude(id); break;
+    case 'hard-day': setHardDay(!state.hardDay); break;
+    case 'backup': backup(); break;
+    case 'import': $('#import-file').click(); break;
+    case 'dump-toggle': {
+      const d = $('#dump'); d.hidden = !d.hidden; el.setAttribute('aria-expanded', String(!d.hidden));
+      if (!d.hidden) $('#dump-text').focus();
+      break;
+    }
+  }
+});
+$('#scrim').addEventListener('click', closeDrawer);
+
+document.addEventListener('submit', e => {
+  const form = e.target;
+  e.preventDefault();
+  if ((form.id === 'add-form' || form.id === 'dump') && isLoading()){ toast('One second, still loading your people.'); return; }
+  if (form.id === 'add-form'){
+    const name = $('#add-name').value.trim();
+    if (!name){ $('#add-name').focus(); toast('Type a name first. Just a first name is plenty.'); return; }
+    addFriend(name, $('#add-how').value.trim());
+    $('#add-name').value = ''; $('#add-how').value = ''; $('#add-name').focus();
+    return;
+  }
+  if (form.id === 'dump'){
+    const t = $('#dump-text').value;
+    if (!t.trim()){ $('#dump-text').focus(); return; }
+    addMany(t); $('#dump-text').value = '';
+    return;
+  }
+  const kind = form.dataset.form, id = form.dataset.id;
+  if (kind === 'item'){
+    const input = form.querySelector('input'), text = input.value.trim();
+    if (!text) return;
+    const key = form.dataset.k;
+    edit(id, f => { if (f[key].length < 40) f[key].push({id: uid('n'), text: text.slice(0, 160)}); });
+    const again = $(`#${input.id}`); if (again) again.focus();
+    return;
+  }
+  if (kind === 'note'){
+    const note = form.querySelector('input').value.trim().slice(0, 280), lid = form.dataset.v;
+    state.noteFor = null;
+    edit(id, f => { const l = f.log.find(x => x.id === lid); if (l) l.note = note; });
+    if (note) toast('Saved to their moments.');
+  }
+});
+
+$('#drawer').addEventListener('input', e => {
+  const el = e.target, field = el.dataset.field, f = state.openId && state.friends.get(state.openId);
+  if (!field || !f || el.tagName === 'SELECT') return;
+  const val = el.value;
+  if (field === 'name'){ if (!val.trim()) return; f.name = val.trim().slice(0, 60); }
+  else if (field === 'circle') f.circle = val.trim().toLowerCase().slice(0, 30);
+  else if (field === 'glyph') f.glyph = Array.from(val.trim()).slice(0, 2).join('');
+  else if (field === 'pronouns' || field === 'how' || field === 'restNote') f[field] = val.slice(0, {pronouns: 30, how: 80, restNote: 120}[field]).trim();
+  f.updatedAt = Date.now();
+  Store.persistSoon(f.id);
+  renderSoon();
+});
+$('#drawer').addEventListener('change', e => {
+  const el = e.target, field = el.dataset.field, f = state.openId && state.friends.get(state.openId);
+  if (!f || (field !== 'bmonth' && field !== 'bday')) return;
+  const box = el.closest('.bd'), m = Number(box.querySelector('[data-field="bmonth"]').value), d = Number(box.querySelector('[data-field="bday"]').value);
+  edit(f.id, g => { g.birthday = m && d ? {m, d} : null; });
+});
+$('#drawer').addEventListener('focusout', e => {
+  const el = e.target;
+  if (el.dataset && el.dataset.field === 'name' && !el.value.trim()){
+    const f = state.openId && state.friends.get(state.openId);
+    if (f) el.value = f.name;
+  }
+});
+$('#drawer').addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const items = $$('button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])', $('#drawer')).filter(x => x.offsetParent !== null);
+  if (!items.length) return;
+  const firstEl = items[0], lastEl = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === firstEl){ e.preventDefault(); lastEl.focus(); }
+  else if (!e.shiftKey && document.activeElement === lastEl){ e.preventDefault(); firstEl.focus(); }
+});
+
+$('#search').addEventListener('input', e => { state.search = e.target.value; renderPeople(); });
+$('#sort').addEventListener('change', e => { state.sort = e.target.value; prefs.sort = state.sort; savePrefs(); renderPeople(); });
+$('#import-file').addEventListener('change', async e => {
+  const file = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  let text = ''; try { text = await file.text(); } catch (err) {}
+  importText(text);
+});
+$('#people-list').addEventListener('pointerover', e => { const c = e.target.closest('.person'); Orbit.setPulse(c ? c.dataset.id : (state.openId || null)); });
+$('#people-list').addEventListener('pointerleave', () => Orbit.setPulse(state.openId || null));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ if (state.openId){ e.preventDefault(); closeDrawer(); } return; }
+  const t = e.target, typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || state.openId || state.hardDay) return;
+  if (e.key === '/'){ e.preventDefault(); const s = $('#search'); if (!$('#toolbar').hidden) s.focus(); else $('#add-name').focus(); }
+  else if (e.key === 'n' || e.key === 'N'){ e.preventDefault(); $('#add-name').focus(); }
+});
+
+setInterval(renderAll, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) renderAll(); });
+
+boot();
+})();
+</script>
+</body>
+</html>
