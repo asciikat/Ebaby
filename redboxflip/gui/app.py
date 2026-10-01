@@ -193,11 +193,33 @@ class App:
         self.root.destroy()
 
 
+def _ensure_tcl():
+    """Point Tcl/Tk at the base install so tk.Tk() works inside a Windows venv.
+
+    A venv created on Windows doesn't copy the tcl/ runtime, so tkinter fails
+    with "Can't find a usable init.tcl". CPython only auto-sets TCL_LIBRARY for
+    the base interpreter; the venv launcher inherits nothing. Locate the
+    tcl8.x / tk8.x folders under the base prefix and export them. No-op when the
+    vars are already set or off Windows (Linux/WSL find them on the system)."""
+    if os.environ.get("TCL_LIBRARY") or not sys.platform.startswith("win"):
+        return
+    import glob
+    for base in (sys.base_prefix, sys.prefix):
+        tcl = glob.glob(os.path.join(base, "tcl", "tcl8.*"))
+        tkl = glob.glob(os.path.join(base, "tcl", "tk8.*"))
+        if tcl:
+            os.environ["TCL_LIBRARY"] = tcl[0]
+            if tkl:
+                os.environ["TK_LIBRARY"] = tkl[0]
+            return
+
+
 def launch():
     if tk is None:
         print("Tkinter not available. Install: sudo apt install python3-tk python3-pil.imagetk",
               file=sys.stderr)
         return 1
+    _ensure_tcl()
     root = tk.Tk()
     App(root)
     root.mainloop()

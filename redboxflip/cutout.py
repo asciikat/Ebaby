@@ -17,11 +17,44 @@ _REMBG_SESSIONS = {}
 _SAM_PREDICTOR = None
 
 ENGINE_LADDER = {
+    "exact": ["exact"],
     "rembg": ["rembg", "grabcut", "geometric"],
     "sam": ["sam", "grabcut", "geometric"],
     "grabcut": ["grabcut", "geometric"],
     "geometric": ["geometric"],
 }
+
+
+def _order_quad(pts):
+    """Order 4 points as top-left, top-right, bottom-right, bottom-left."""
+    pts = np.asarray(pts, np.float32).reshape(-1, 2)
+    s = pts.sum(axis=1)
+    d = (pts[:, 0] - pts[:, 1])
+    return np.array([pts[np.argmin(s)], pts[np.argmax(d)],
+                     pts[np.argmax(s)], pts[np.argmin(d)]], np.float32)
+
+
+def exact_quad_cutout(bgr, quad):
+    """Perspective-warp exactly the 4 selected corners to an upright rectangle.
+
+    No matting: the output is precisely what the quad enclosed, deskewed, fully
+    opaque. This is the manual-crop escape hatch for transparent cases that the
+    AI mattes clip — the user can see the case edge, so they place the corners
+    and get exactly that, nothing removed. Returns RGBA, or None if degenerate.
+    """
+    if quad is None:
+        return None
+    tl, tr, br, bl = _order_quad(quad)
+    W = int(round(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl))))
+    H = int(round(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl))))
+    if W < 10 or H < 10:
+        return None
+    dst = np.array([[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]], np.float32)
+    M = cv2.getPerspectiveTransform(np.array([tl, tr, br, bl], np.float32), dst)
+    warped = cv2.warpPerspective(bgr, M, (W, H))
+    rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+    alpha = np.full((H, W), 255, np.uint8)
+    return np.dstack([rgb, alpha])
 
 
 def validate_coverage(alpha: np.ndarray, min_cov: float = 0.05,
@@ -134,6 +167,12 @@ def _run_engine(name, roi_bgr, model, checkpoint):
 def make_cutout(bgr, quad, engine: str, feather_px: int,
                 rembg_model: str = "isnet-general-use", sam_checkpoint: str = ""):
     """Return (rgba uint8 HxWx4 tight to alpha bbox, method)."""
+    if engine == "exact":
+        rgba = exact_quad_cutout(bgr, quad)
+        if rgba is not None:
+            return rgba, "exact"
+        # degenerate selection -> fall back to a plain matte rather than crash
+
     x0, y0, x1, y1 = roi_bounds(quad, bgr.shape)
     roi = bgr[y0:y1, x0:x1].copy()
 

@@ -14,11 +14,37 @@ Closed cases (front/back) are then trimmed to the exact DVD aspect ratio
 (0.711) which removes the transparent sleeve flap that rembg includes as part of
 the object. Open cases (inside) get a light empty-border trim.
 """
+import os
+import shutil
+
 import cv2
 import numpy as np
 import pytesseract
 
 from . import cutout
+
+
+def _locate_tesseract():
+    """Point pytesseract at the tesseract binary if it isn't already on PATH.
+
+    The Windows installer (winget / UB-Mannheim) drops the exe in Program Files
+    but doesn't always add it to PATH, so the OCR flip-vote, face word-count and
+    title fallback would silently no-op. Probe the standard install locations so
+    the app works out of the box. A no-op on Linux/WSL where it's on PATH."""
+    if shutil.which("tesseract"):
+        return
+    candidates = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return
+
+
+_locate_tesseract()
 
 # A closed DVD case is 13.5 cm wide x 19.0 cm tall -> W/H = 0.711.
 DVD_CLOSED_RATIO = 0.711

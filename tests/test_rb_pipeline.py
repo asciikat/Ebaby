@@ -31,6 +31,16 @@ def test_assign_groups_handles_trailing_partial():
     assert len(groups[1]) == 1
 
 
+def test_unique_dir_avoids_collision(tmp_path):
+    # Two DVDs with the same title must not share a folder (would overwrite).
+    a = pipeline._unique_dir(tmp_path, "Sexy Beast")
+    a.mkdir()
+    b = pipeline._unique_dir(tmp_path, "Sexy Beast")
+    assert a.name == "Sexy Beast"
+    assert b.name == "Sexy Beast (2)"
+    assert a != b
+
+
 def test_process_shot_returns_square_image(tmp_path):
     img = make_redbox_image()
     p = tmp_path / "shot.jpg"
@@ -71,8 +81,8 @@ def test_run_batch_end_to_end(tmp_path, monkeypatch):
     assert all(Path(sh.output_path).exists() for sh in g.shots)
     assert (run_dir / "dvd_listing.txt").exists()
     assert (run_dir / "run_log.json").exists()
-    # Each DVD folder is self-contained: its own listing + scan files.
+    # Ebaby is title-only: no per-DVD Qwen scan / listing files are written.
     dvd_dir = run_dir / "Test DVD"
-    assert (dvd_dir / "ebay_listing.txt").exists()
-    assert (dvd_dir / "ebay_listing.csv").exists()
-    assert (dvd_dir / "qwen_scan.json").exists()
+    assert not (dvd_dir / "ebay_listing.txt").exists()
+    assert not (dvd_dir / "qwen_scan.json").exists()
+    assert g.scan is None and g.barcode is None
