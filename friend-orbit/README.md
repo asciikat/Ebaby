@@ -36,7 +36,8 @@ your own track instead, add MP3 files here:
 - `audio/hard-day.mp3` (optional) plays in hard day mode. Without it, the main
   track just gets quieter.
 
-Tracks loop with a slow crossfade, so they don't need to loop perfectly. Keep
+Tracks loop with a crossfade (up to 6 seconds, never more than a quarter of the track),
+so they don't need to loop perfectly. Longer tracks repeat less noticeably. Keep
 each one under about 8 MB. Bump `VERSION` in `sw.js` after adding or
 changing a track.
 

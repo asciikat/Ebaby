@@ -920,7 +920,9 @@ const Sound = (() => {
   }
   // Two players crossfading over the seam, so any track loops without a gap or a jump.
   function looper(src, out){
-    const XF = 6, els = [], gs = [];
+    const els = [], gs = [];
+    // crossfade is up to 6s, but never more than a quarter of the track, so short tracks still breathe
+    const xf = () => { const d = els[cur].duration; return d && isFinite(d) ? Math.max(1.5, Math.min(6, d / 4)) : 3; };
     for (let i = 0; i < 2; i++){
       const el = new Audio(); el.src = src; el.preload = 'auto';
       const g = ac.createGain(); g.gain.value = 0;
@@ -929,14 +931,14 @@ const Sound = (() => {
     }
     let cur = 0, dead = false, paused = false;
     function fade(i, to, sec){ const t = ac.currentTime, g = gs[i].gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); }
-    function begin(i){ els[i].currentTime = 0; els[i].play().catch(() => {}); fade(i, 1, XF); }
+    function begin(i, sec){ els[i].currentTime = 0; els[i].play().catch(() => {}); fade(i, 1, sec); }
     const timer = setInterval(() => {
-      const el = els[cur];
-      if (dead || paused || !el.duration || el.currentTime < el.duration - XF - .4) return;
-      const old = cur; cur = 1 - cur; begin(cur); fade(old, 0, XF);
-      setTimeout(() => { if (cur !== old && !dead) els[old].pause(); }, (XF + .6) * 1000);
+      const el = els[cur], X = xf();
+      if (dead || paused || !el.duration || el.currentTime < el.duration - X - .4) return;
+      const old = cur; cur = 1 - cur; begin(cur, X); fade(old, 0, X);
+      setTimeout(() => { if (cur !== old && !dead) els[old].pause(); }, (X + .6) * 1000);
     }, 400);
-    begin(cur);
+    begin(cur, 1.5);
     return {
       pause(){ paused = true; els.forEach(e => e.pause()); },
       resume(){ if (!paused || dead) return; paused = false; els[cur].play().catch(() => {}); },
