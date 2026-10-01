@@ -1,0 +1,528 @@
+"""eBay Browse (buy) API — app-only token, New/Used dual search, item
+specifics, and CSV writing. Ported from ebay_api.py + ebay_csv_extractor_new.py.
+
+Network access is best-effort: transient failures are retried with backoff;
+a hard outage raises EbayUnavailable so callers can show a clean message
+instead of a stack trace and let the user choose retry-or-continue.
+"""
+import base64
+import csv
+import re
+import time
+import urllib.parse
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from ebaby import pipeline_config as cfg
+from ebaby.naming_utils import slugify_title
+
+_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
+_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+_ITEM_URL = "https://api.ebay.com/buy/browse/v1/item/"
+_INSIGHTS_URL = "https://api.ebay.com/buy/marketplace_insights/v1_beta/item_sales/search"
+
+NEW_CONDITIONS = "1000|1500|1750"
+USED_CONDITIONS = "3000|4000|5000|6000"
+
+CSV_HEADERS = [
+    "Barcode", "Image Set Name", "Title", "Condition", "Region Code", "Genre",
+    "Type", "Season", "Actor", "Studio", "Language", "Rating",
+    "Lowest Price (AUD)", "Last Sold (AUD)", "iCollect Reco (AUD)",
+    "Price Source", "Your Price (AUD)",
+]
+
+# Columns written even when every row in the batch is blank for them — the
+# identity/pricing fields the user always wants a slot for. Everything else
+# in CSV_HEADERS is metadata eBay sometimes doesn't return (Region Code,
+# Season, etc.); a column that's blank on EVERY row in this batch is dropped
+# so the sheet isn't full of dead space.
+_ALWAYS_KEPT_HEADERS = {
+    "Barcode", "Image Set Name", "Title", "Condition",
+    "Lowest Price (AUD)", "Your Price (AUD)",
+}
+
+# Undercut the cheapest comparable DELIVERED price by this much, so the listing
+# sits at the top of the buyer's price-sorted results without giving away
+# margin. DVDs are low-dollar and heavily comparison-shopped — 10% reads as
+# clearly cheaper where 5% barely registers on a results page.
+UNDERCUT_RATIO = 0.90
+
+
+def _charm(price):
+    """Round to the nearest whole dollar and knock off a cent, so every
+    suggested price ends in .99 — $26.99, $8.99 — the classic eBay look.
+    (round-half-up, not banker's rounding, so it's predictable.)"""
+    if price < 1.0:
+        return round(price, 2)          # too cheap to charm sensibly
+    return round(int(price + 0.5) - 0.01, 2)
+
+
+def _undercut(price):
+    """A competitive delivered price ~`UNDERCUT_RATIO` of the cheapest comp,
+    charm-rounded to a .99/.00, or "" when there was no comp to undercut. This
+    is a target DELIVERED total (item + your postage), since that's the number
+    buyers actually compare and eBay sorts on."""
+    if price is None:
+        return ""
+    return _charm(price * UNDERCUT_RATIO)
+
+
+class EbayUnavailable(RuntimeError):
+    """Raised when eBay can't be reached (network/DNS/timeout/5xx after retries)."""
+
+
+def _make_session():
+    retry = Retry(
+        total=3, connect=3, read=3, backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST"), raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    sess = requests.Session()
+    sess.mount("https://", adapter)
+    sess.mount("http://", adapter)
+    return sess
+
+
+_SESSION = _make_session()
+
+
+def _root_cause(exc):
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "no network / DNS"
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "timed out"
+    return type(exc).__name__
+
+
+def get_token() -> str:
+    if not cfg.ebay_configured():
+        raise RuntimeError(
+            "eBay credentials missing — set EBAY_CLIENT_ID / EBAY_CLIENT_SECRET in the project .env")
+    creds = base64.b64encode(f"{cfg.EBAY_CLIENT_ID}:{cfg.EBAY_CLIENT_SECRET}".encode()).decode()
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {creds}"}
+    payload = "grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope"
+    try:
+        res = _SESSION.post(_TOKEN_URL, headers=headers, data=payload, timeout=30)
+        res.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise EbayUnavailable(f"can't reach eBay auth ({_root_cause(e)})") from e
+    return res.json()["access_token"]
+
+
+# ---- currency: everything the user sees is AUD -------------------------
+# Live ECB rates (frankfurter.app, no key needed), fetched once per process;
+# static fallbacks keep worldwide pricing working offline (better a slightly
+# stale rate than no comp at all).
+_RATES = None
+_RATE_FALLBACK = {"USD": 1.52, "GBP": 2.06, "EUR": 1.77, "NZD": 1.09,
+                  "CAD": 1.11, "JPY": 0.0105, "AUD": 1.0}
+
+
+def _aud_rate(currency):
+    """AUD per 1 unit of `currency`, or None for an unknown currency."""
+    global _RATES
+    if not currency:
+        return None
+    if currency == "AUD":
+        return 1.0
+    if _RATES is None:
+        try:
+            res = _SESSION.get("https://api.frankfurter.app/latest",
+                               params={"base": "AUD"}, timeout=15)
+            res.raise_for_status()
+            rates = res.json().get("rates", {})   # 1 AUD = rates[X] in X
+            _RATES = {k: 1.0 / v for k, v in rates.items() if v}
+        except (requests.exceptions.RequestException, ValueError, KeyError):
+            _RATES = {}
+    return _RATES.get(currency) or _RATE_FALLBACK.get(currency)
+
+
+def _auth_headers(token, marketplace=None):
+    return {"Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace or cfg.EBAY_MARKETPLACE_ID,
+            "Content-Type": "application/json"}
+
+
+def _delivered_price(item):
+    """(total, has_postage, currency): total is price + CHEAPEST quoted
+    postage when the seller quotes postage, or the bare price when they
+    don't; currency is the listing's currency code. None when the item has
+    no usable price at all (never default a missing price to $0 — that
+    fabricates bargains)."""
+    try:
+        price = float(item["price"]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    postage = []
+    for opt in item.get("shippingOptions", []):
+        try:
+            postage.append(float(opt["shippingCost"]["value"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    currency = (item.get("price") or {}).get("currency", "AUD")
+    if postage:
+        return price + min(postage), True, currency
+    return price, False, currency
+
+
+def _search_condition(query, condition_ids, headers, by_gtin=False, to_aud=False):
+    # FIXED_PRICE only: an auction sitting at $0.99 with 6 days left is not
+    # a real "lowest price". deliveryCountry pins postage quotes to AU.
+    #
+    # by_gtin: barcodes must go through eBay's gtin= param (exact product-
+    # identifier match), NOT q=. q= is fuzzy text search — measured live, it
+    # ranked a bogus "Intruder (DVD, 2009)" listing above four genuine "One
+    # Step Beyond" listings for barcode 9327478001218, which then became the
+    # canonical title for the whole disc. gtin= returned only true matches.
+    params = {
+        ("gtin" if by_gtin else "q"): query,
+        "filter": (f"conditionIds:{{{condition_ids}}},"
+                   "buyingOptions:{FIXED_PRICE},deliveryCountry:AU"),
+        "sort": "price",  # eBay sorts ascending by price + postage
+        "limit": "20",
+    }
+    try:
+        res = _SESSION.get(_SEARCH_URL, headers=headers, params=params, timeout=30)
+        res.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise EbayUnavailable(f"can't reach eBay ({_root_cause(e)})") from e
+    summaries = res.json().get("itemSummaries", [])
+    if not summaries:
+        return None, None, None
+
+    with_postage, bare = [], []
+    for item in summaries:
+        dp = _delivered_price(item)
+        if dp is None:
+            continue
+        total, quoted, currency = dp
+        if to_aud:
+            rate = _aud_rate(currency)
+            if rate is None:
+                continue              # can't convert -> can't compare
+            total *= rate
+        (with_postage if quoted else bare).append((total, item))
+
+    # Sellers who quote postage give the honest delivered total; listings
+    # with no postage info only count when nobody quotes postage at all.
+    pool = with_postage or bare
+    if not pool:
+        return None, None, None
+    lowest_price, best = min(pool, key=lambda t: t[0])
+    return lowest_price, best.get("itemId"), best.get("title", "")
+
+
+# When Australia has nothing on sale, the SAME search runs on eBay UK/US.
+# deliveryCountry:AU is already in the filter, so only listings that actually
+# post to Australia come back — with the postage quote — and every delivered
+# total is converted to AUD before comparing.
+_WORLDWIDE_MARKETPLACES = ("EBAY_GB", "EBAY_US")
+
+
+def _worldwide_lowest(query, condition_ids, token, by_gtin=False):
+    """Cheapest AUD-converted delivered price across the worldwide
+    marketplaces, or (None, None, None)."""
+    best = (None, None, None)
+    for mp in _WORLDWIDE_MARKETPLACES:
+        headers = _auth_headers(token, mp)
+        try:
+            price, item_id, title = _search_condition(
+                query, condition_ids, headers, by_gtin=by_gtin, to_aud=True)
+        except EbayUnavailable:
+            continue                   # one marketplace down isn't fatal
+        if price is not None and (best[0] is None or price < best[0]):
+            best = (round(price, 2), item_id, title)
+    return best
+
+
+# Marketplace Insights (sold history) is a limited-release eBay API — most
+# keys get 401/403. One refusal turns it off for the rest of the process so a
+# batch doesn't burn a failing call per disc.
+_INSIGHTS_AVAILABLE = True
+
+
+def _search_last_sold(query, condition_ids, headers, by_gtin=False):
+    """Most recent SOLD price for the query, or (None, None, None).
+    Same (price, itemId, title) shape as _search_condition."""
+    global _INSIGHTS_AVAILABLE
+    if not _INSIGHTS_AVAILABLE:
+        return None, None, None
+    params = {
+        ("gtin" if by_gtin else "q"): query,
+        "filter": f"conditionIds:{{{condition_ids}}}",
+        "limit": "20",
+    }
+    try:
+        res = _SESSION.get(_INSIGHTS_URL, headers=headers, params=params, timeout=30)
+        if res.status_code in (401, 403):
+            _INSIGHTS_AVAILABLE = False
+            return None, None, None
+        res.raise_for_status()
+    except requests.exceptions.RequestException:
+        return None, None, None   # best-effort fallback — never sink the batch
+    best = None                   # the NEWEST sale, not the cheapest
+    for sale in res.json().get("itemSales", []):
+        price = (sale.get("lastSoldPrice") or {}).get("value")
+        if price is None:
+            continue
+        when = sale.get("lastSoldDate", "")
+        if best is None or when > best[0]:
+            best = (when, float(price), sale.get("itemId"), sale.get("title", ""))
+    if best is None:
+        return None, None, None
+    return best[1], best[2], best[3]
+
+
+# Fallback #2: the public sold-listings SEARCH PAGE. Plain requests get 403
+# (TLS fingerprint check), but curl_cffi impersonating Chrome + a homepage
+# warm-up (cookies) reads it fine. Best-effort: any hiccup returns nothing.
+_SCRAPE_SESSIONS = {}
+_SCRAPE_AVAILABLE = True
+# home marketplace first, then the worldwide sites (prices converted to AUD)
+_SCRAPE_LADDER = {
+    "EBAY_AU": (("www.ebay.com.au", "AUD"), ("www.ebay.co.uk", "GBP"),
+                ("www.ebay.com", "USD")),
+    "EBAY_US": (("www.ebay.com", "USD"), ("www.ebay.co.uk", "GBP")),
+    "EBAY_GB": (("www.ebay.co.uk", "GBP"), ("www.ebay.com", "USD")),
+}
+
+
+def _scrape_last_sold(query, condition_ids, domain="www.ebay.com.au",
+                      currency="AUD"):
+    """Most recent sold price scraped off ONE site's sold-listings page,
+    converted to AUD, or (None, None, None). _sop=13 = newest first."""
+    global _SCRAPE_AVAILABLE
+    if not _SCRAPE_AVAILABLE:
+        return None, None, None
+    try:
+        from curl_cffi import requests as creq
+    except ImportError:
+        _SCRAPE_AVAILABLE = False       # not installed — stay quiet for the run
+        return None, None, None
+    rate = _aud_rate(currency)
+    if rate is None:
+        return None, None, None
+    try:
+        if domain not in _SCRAPE_SESSIONS:
+            sess = creq.Session(impersonate="chrome")
+            sess.get(f"https://{domain}/", timeout=30)   # cookies stop the 403
+            _SCRAPE_SESSIONS[domain] = sess
+        for attempt in range(2):        # eBay A/B-tests layouts; retry once
+            time.sleep(1.0)             # polite pace — hammering earns a block
+            res = _SCRAPE_SESSIONS[domain].get(
+                f"https://{domain}/sch/i.html",
+                params={"_nkw": query, "LH_Sold": "1", "LH_Complete": "1",
+                        "LH_ItemCondition": condition_ids, "_sop": "13"},
+                headers={"Referer": f"https://{domain}/"}, timeout=30)
+            if res.status_code == 200:
+                text = res.text
+                # a junk query gets padded with "fewer words" suggestions —
+                # any price on THAT page belongs to a different product
+                if "No exact matches found" not in text and "0 results" not in text:
+                    # anchor on the "Sold <date>" label every real sale carries
+                    # (ad/placeholder cards have none), take the price inside
+                    # that card. _sop=13 = newest first. class attributes are
+                    # sometimes unquoted in eBay's minified HTML, so no quote
+                    # in the pattern.
+                    for dm in re.finditer(
+                            r"Sold[^A-Za-z0-9<]{0,8}(?:\d{1,2}\s+\w{3,9}\s+\d{4}"
+                            r"|\w{3,9}\s+\d{1,2},\s+\d{4})", text):
+                        seg = text[dm.end():dm.end() + 5000]
+                        pm = re.search(
+                            r"s-(?:card|item)__price[^>]*>(?:<[^>]+>)*[^0-9<]*([\d,]+\.\d{2})",
+                            seg)
+                        if pm:
+                            price = float(pm.group(1).replace(",", "")) * rate
+                            return round(price, 2), None, None
+            # parse failed — a FRESH session often lands the classic layout
+            sess = creq.Session(impersonate="chrome")
+            sess.get(f"https://{domain}/", timeout=30)
+            _SCRAPE_SESSIONS[domain] = sess
+        return None, None, None
+    except Exception:                    # scraping is inherently fragile —
+        return None, None, None          # never let it sink a batch
+
+
+def _last_sold(query, condition_ids, headers, by_gtin=False):
+    """(price_aud, item_id, title, worldwide?) — Insights API first (exact
+    product data), then the home sold page, then the worldwide sold pages."""
+    price, item_id, title = _search_last_sold(query, condition_ids, headers, by_gtin)
+    if price is not None:
+        return price, item_id, title, False
+    ladder = _SCRAPE_LADDER.get(cfg.EBAY_MARKETPLACE_ID,
+                                _SCRAPE_LADDER["EBAY_AU"])
+    for i, (domain, currency) in enumerate(ladder):
+        price, item_id, title = _scrape_last_sold(query, condition_ids,
+                                                  domain, currency)
+        if price is not None:
+            return price, item_id, title, i > 0
+    return None, None, None, False
+
+
+def _fetch_item_specifics(item_id, headers):
+    encoded = urllib.parse.quote(item_id)
+    try:
+        res = _SESSION.get(f"{_ITEM_URL}{encoded}", headers=headers, timeout=30)
+        res.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise EbayUnavailable(f"can't reach eBay ({_root_cause(e)})") from e
+    data = res.json()
+    aspects = {a.get("name", "").lower(): a.get("value", "") for a in data.get("localizedAspects", [])}
+    return data.get("title", ""), aspects
+
+
+def _guarded_min(barcode_price, title_price, floor_ratio=0.3):
+    """Lowest of the barcode- and title-search delivered prices, EXCEPT a
+    title match is rejected when it's below floor_ratio of the
+    barcode-confirmed price. A title-only listing that cheap is almost always
+    the wrong item — an empty case, a single disc where ours is a boxset, or a
+    generic 'DVD lot' — and letting it through is exactly how prices come out
+    implausibly low. With no barcode price to check against, the title price
+    is taken as-is (better a rough figure than none)."""
+    if title_price is None:
+        return barcode_price
+    if barcode_price is None:
+        return title_price
+    if title_price < barcode_price * floor_ratio:
+        return barcode_price
+    return min(barcode_price, title_price)
+
+
+def fetch_listing_row(barcode, token):
+    """One CSV row (dict, CSV_HEADERS keys) or None if nothing found on
+    either New or Used condition search.
+
+    Two searches per condition: first by BARCODE, then a second by TITLE
+    (many sellers never enter the barcode, so barcode-only search misses
+    their — often cheaper — listings). The lowest delivered price across
+    both searches wins; the same postage rules apply to each."""
+    headers = _auth_headers(token)
+
+    lowest_new, new_item_id, new_title = _search_condition(
+        barcode, NEW_CONDITIONS, headers, by_gtin=True)
+    lowest_used, used_item_id, used_title = _search_condition(
+        barcode, USED_CONDITIONS, headers, by_gtin=True)
+    # nothing on sale in AU -> the SAME barcode search, worldwide (UK/US),
+    # AUD-converted delivered prices (postage to AU included)
+    ww_new = ww_used = False
+    if lowest_new is None:
+        lowest_new, wn_id, wn_title = _worldwide_lowest(
+            barcode, NEW_CONDITIONS, token, by_gtin=True)
+        new_item_id, new_title = new_item_id or wn_id, new_title or wn_title
+        ww_new = lowest_new is not None
+    if lowest_used is None:
+        lowest_used, wu_id, wu_title = _worldwide_lowest(
+            barcode, USED_CONDITIONS, token, by_gtin=True)
+        used_item_id, used_title = used_item_id or wu_id, used_title or wu_title
+        ww_used = lowest_used is not None
+
+    # what did it LAST SELL for? — fetched for every disc (new discs get the
+    # new-condition sale, used discs the used-condition sale; server.py keeps
+    # only the condition the disc is actually sold as)
+    sold_new, sn_id, sn_title, sold_new_ww = _last_sold(
+        barcode, NEW_CONDITIONS, headers, by_gtin=True)
+    new_item_id, new_title = new_item_id or sn_id, new_title or sn_title
+    sold_used, su_id, su_title, sold_used_ww = _last_sold(
+        barcode, USED_CONDITIONS, headers, by_gtin=True)
+    used_item_id, used_title = used_item_id or su_id, used_title or su_title
+    if (lowest_new is None and lowest_used is None
+            and sold_new is None and sold_used is None):
+        return None
+
+    specifics_item_id = new_item_id or used_item_id
+    fallback_title = new_title or used_title
+    title, aspects = ("", {})
+    if specifics_item_id:
+        title, aspects = _fetch_item_specifics(specifics_item_id, headers)
+    if not title:
+        title = fallback_title
+
+    if title:
+        # 'DVD' keeps the title search from matching Blu-rays/CDs/posters.
+        # Best-effort: a transient failure here must not throw away the
+        # barcode-pass prices (or, via fetch_all, the whole batch's rows).
+        q = title if "dvd" in title.lower() else f"{title} DVD"
+        try:
+            title_new, _, _ = _search_condition(q, NEW_CONDITIONS, headers)
+            title_used, _, _ = _search_condition(q, USED_CONDITIONS, headers)
+        except EbayUnavailable:
+            title_new = title_used = None
+        pre_new, pre_used = lowest_new, lowest_used
+        lowest_new = _guarded_min(lowest_new, title_new)
+        lowest_used = _guarded_min(lowest_used, title_used)
+        # if the AU title search beat a worldwide barcode price, the winning
+        # comp is domestic — the Price Source label must say so
+        if lowest_new != pre_new:
+            ww_new = False
+        if lowest_used != pre_used:
+            ww_used = False
+        if lowest_new is None:
+            lowest_new, _, _ = _worldwide_lowest(q, NEW_CONDITIONS, token)
+            ww_new = lowest_new is not None
+        if lowest_used is None:
+            lowest_used, _, _ = _worldwide_lowest(q, USED_CONDITIONS, token)
+            ww_used = lowest_used is not None
+        if lowest_new is None and sold_new is None:
+            sold_new, _, _, sold_new_ww = _last_sold(q, NEW_CONDITIONS, headers)
+        if lowest_used is None and sold_used is None:
+            sold_used, _, _, sold_used_ww = _last_sold(q, USED_CONDITIONS, headers)
+
+    slug = slugify_title(title, fallback=barcode)
+    return {
+        "Barcode": barcode,
+        "Image Set Name": slug,
+        "Title": title,
+        "Region Code": aspects.get("region code", ""),
+        "Genre": aspects.get("genre", ""),
+        "Type": aspects.get("type", ""),
+        "Season": aspects.get("season", ""),
+        "Actor": aspects.get("actor", aspects.get("cast", "")),
+        "Studio": aspects.get("studio", ""),
+        "Language": aspects.get("language", ""),
+        "Rating": aspects.get("rating", ""),
+        # not real CSV columns (extrasaction="ignore" drops them on write) —
+        # the caller doesn't yet know if THIS barcode is the new or used copy,
+        # so both lowest prices are carried until server.py picks the one
+        # that matches how the disc was actually uploaded.
+        "_lowest_new": round(lowest_new, 2) if lowest_new is not None else None,
+        "_lowest_used": round(lowest_used, 2) if lowest_used is not None else None,
+        "_sold_new": round(sold_new, 2) if sold_new is not None else None,
+        "_sold_used": round(sold_used, 2) if sold_used is not None else None,
+        "_ww_new": ww_new, "_ww_used": ww_used,
+        "_sold_ww_new": sold_new_ww, "_sold_ww_used": sold_used_ww,
+    }
+
+
+def fetch_all(barcodes, token, delay=0.5):
+    """rows = [{...} or {"Barcode": b} if nothing found, ...], same order as
+    barcodes. Raises EbayUnavailable immediately on outage so the caller can
+    offer retry/continue rather than silently returning partial data."""
+    rows = []
+    for barcode in barcodes:
+        row = fetch_listing_row(barcode, token)
+        rows.append(row or {"Barcode": barcode})
+        time.sleep(delay)
+    return rows
+
+
+def _prune_blank_columns(rows):
+    """CSV_HEADERS minus any optional column that's blank on EVERY row in
+    this batch (e.g. a run with no TV box sets never has a Season value)."""
+    return [h for h in CSV_HEADERS if h in _ALWAYS_KEPT_HEADERS
+            or any(row.get(h, "") not in ("", None) for row in rows)]
+
+
+def write_csv(rows, out_path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    headers = _prune_blank_columns(rows)
+    # utf-8-sig: without the BOM, Excel renders accented titles as mojibake
+    with open(out_path, mode="w", newline="", encoding="utf-8-sig") as f:
+        # extrasaction="ignore": rows carry internal keys (Stock, _lowest_*)
+        # that aren't CSV columns — drop them instead of raising.
+        writer = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)

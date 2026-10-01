@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EBABY</title>
+  <link rel="icon" type="image/png" href="/img/favicon.png" />
+  <link rel="stylesheet" href="/app.css?v=18" />
+</head>
+<body>
+  <header>
+    <img class="logo-img" src="/img/logo.png" alt="EBABY" />
+    <div class="tagline">PLASTIC IN. PAPER OUT.</div>
+    <button id="btn-sound" class="snd-btn" title="music + sounds on/off">&#128266;</button>
+  </header>
+
+  <!-- 1. UPLOAD -->
+  <section id="screen-upload">
+    <div class="dropzones">
+      <div class="dropzone" data-zone="used">
+        <h3>USED DVDS</h3>
+        <p class="hint">3 shots each: front / back / inside. No exceptions.</p>
+        <input type="file" id="input-used" multiple accept="image/*,.dng,.nef" hidden />
+        <button class="pick" data-pick="used">ADD PHOTOS</button>
+        <div class="file-count" id="count-used">0 photos</div>
+        <div class="file-list" id="files-used"></div>
+      </div>
+      <div class="dropzone" data-zone="new">
+        <h3>NEW DVDS</h3>
+        <p class="hint">Still in the shrink wrap &mdash; 2 shots each: front / back.</p>
+        <input type="file" id="input-new" multiple accept="image/*,.dng,.nef" hidden />
+        <button class="pick" data-pick="new">ADD PHOTOS</button>
+        <div class="file-count" id="count-new">0 photos</div>
+        <div class="file-list" id="files-new"></div>
+      </div>
+    </div>
+    <button id="btn-start" class="big-btn" disabled>RUN THE HUSTLE</button>
+    <div id="upload-error" class="error"></div>
+  </section>
+
+  <!-- 2. AUTOMATED RUN -->
+  <section id="screen-progress" hidden>
+    <div id="stage-rail"></div>
+    <img id="job-wheel" src="/img/wheel.png" alt="" />
+    <h2 class="mission">JOB IN PROGRESS<span class="dots"></span></h2>
+    <ul id="mission-log"></ul>
+  </section>
+
+  <!-- 3. BARCODE FIX (only if some missed) -->
+  <section id="screen-barcode" hidden>
+    <h2 class="mission wasted">SOME BARCODES WOULDN'T TALK</h2>
+    <p class="hint">The scanner leaned on them but they kept quiet. Read the digits
+       printed under the barcode and type them in yourself &mdash; old school.</p>
+    <table id="barcode-table">
+      <thead><tr><th>DISC</th><th>THE EVIDENCE</th><th>WHAT IT SAID</th><th>MAKE IT TALK</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button id="btn-barcode-continue" class="big-btn">ROLL OUT</button>
+  </section>
+
+  <!-- 4. CHOP SHOP (opens only after names + eBay are sorted) -->
+  <section id="screen-crop" hidden>
+    <img class="mission-stamp" src="/img/mission-passed.jpg" alt="MISSION PASSED" />
+    <div id="listing-info" class="panel"></div>
+
+    <h2 class="mission">THE FENCE'S VALUATION</h2>
+    <div id="fence-cards"></div>
+
+    <details id="ebay-details"><summary>FULL PAPERWORK (every detail is also in the txt file)</summary>
+      <div class="table-scroll"><table id="ebay-table"></table></div>
+    </details>
+
+    <h2 class="mission">THE CHOP SHOP</h2>
+    <p class="hint">The chop shop chops. It never touches the paperwork &mdash;
+       every file keeps the name it walked in with. Click a photo to adjust
+       its corners, then SAVE.</p>
+    <button id="btn-rechop" class="ghost-btn">RE-CHOP EVERYTHING</button>
+    <div id="crop-grid"></div>
+    <div id="editor-wrap" hidden>
+      <h3 id="editor-title" class="hint"></h3>
+      <canvas id="crop-editor" width="700" height="900"></canvas>
+      <div class="editor-buttons">
+        <button id="btn-crop-save" class="big-btn">SAVE CROP</button>
+        <button id="btn-crop-cancel" class="ghost-btn">WALK AWAY</button>
+      </div>
+    </div>
+
+    <button id="btn-accept-hustle" class="danger-btn" style="margin-top:1.5rem">ACCEPT HUSTLE?</button>
+    <button id="btn-new-job" class="big-btn" style="margin-top:.8rem">START ANOTHER JOB</button>
+  </section>
+
+  <div id="accept-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <h2 class="mission">ACCEPT HUSTLE?</h2>
+      <p class="hint">Deletes the originals, barcode crops, and pre-crop
+         renames for THIS batch &mdash; keeping only the cropped listing
+         photos and the eBay CSV/listing text. Can't be undone.</p>
+      <div class="modal-actions">
+        <button id="btn-accept-yes" class="big-btn">YES</button>
+        <button id="btn-accept-no" class="ghost-btn">NO</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js?v=19"></script>
+</body>
+</html>

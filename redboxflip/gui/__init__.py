@@ -1,1 +1,0 @@
-"""Tkinter GUI for redboxflip."""
