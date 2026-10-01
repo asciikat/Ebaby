@@ -135,9 +135,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .chip[aria-pressed="true"],.chip[aria-checked="true"]{border-color:var(--cyan);background:rgba(79,214,255,.2);color:#fff}
 .chip.small{min-height:34px;padding:4px 10px;font-size:14.5px}
 .chip.liked::after{content:"";width:6px;height:6px;background:var(--calm);transform:rotate(45deg);margin-left:2px}
-.chip.kind .ico{color:hsl(var(--h,40) 82% 66%)}
-.chip.thought{border-color:rgba(255,178,56,.45);background:var(--amber-soft)}
-.chip.thought .ico{color:var(--amber)}
+.chip.kind .ico{color:var(--k,var(--cyan))}
+.chip.thought{border-color:rgba(227,233,255,.4);background:rgba(227,233,255,.08)}
 .field{width:100%;min-width:0;min-height:44px;padding:9px 13px;border-radius:4px;border:1px solid var(--edge);background:rgba(0,0,0,.35);color:var(--ink);font-size:16px}
 .field:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,214,255,.18)}
 .field::placeholder{color:var(--ink-3)}
@@ -184,10 +183,13 @@ textarea.field{resize:vertical;line-height:1.45}
 
 /* jar */
 .wins-row{display:flex;gap:16px;align-items:center}
-.jar{width:84px;flex:none}
+.jar{width:112px;flex:none}
 .jar .glass{fill:rgba(255,255,255,.03);stroke:var(--ink-3);stroke-width:2.2}
 .jar .lid{fill:var(--amber)}
-.jar-star{fill:hsl(var(--h) 82% 62%);stroke:hsl(var(--h) 60% 24%);stroke-width:1}
+.jar-spark{stroke:rgba(4,6,11,.75);stroke-width:1}
+.jar-key{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;padding:0;list-style:none}
+.jar-key li{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-hud);font-weight:600;font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.jar-key i{display:block;flex:none;border-radius:50%;background:var(--k);box-shadow:0 0 0 1px rgba(4,6,11,.75)}
 .big-n{margin:0;font-family:var(--font-hud);font-weight:700;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
 .big-n small{font-size:15px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-left:4px}
 .wins-row p{margin:0}
@@ -454,9 +456,10 @@ html{background:var(--void)}
         <div style="display:grid;gap:4px;min-width:0">
           <p class="big-n" id="spark-n">0<small>sparks</small></p>
           <p id="spark-week" class="muted"></p>
-          <p class="fine">Every spark is a time you remembered someone. The jar only fills.</p>
+          <p class="fine">Every spark is a time you remembered someone. Bigger moments make bigger sparks. The jar only fills.</p>
         </div>
       </div>
+      <ul class="jar-key" id="jar-key" aria-label="What the spark sizes and colours mean"></ul>
       <div class="upcoming" id="upcoming" hidden></div>
     </div>
   </section>
@@ -557,15 +560,17 @@ function hashStr(s){ let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^
 function debounce(fn, ms){ let t = 0; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// size: how big the moment is (0 a thought … 4 catching up in person). It sets the
+// spark's size in the jar, the ping on the orbit and how big the sound is.
 const KINDS = {
-  thought: {label:'Thought of them',       past:'Thought of them',      icon:'i-spark',  cost:0, contact:false},
-  they:    {label:'They reached out',      past:'They reached out',     icon:'i-in',     cost:0, contact:true},
-  react:   {label:'Sent a meme or a heart',past:'Sent a meme or heart', icon:'i-heart',  cost:1, contact:true},
-  text:    {label:'Texted',                past:'Texted',               icon:'i-bubble', cost:2, contact:true},
-  voice:   {label:'Voice note',            past:'Sent a voice note',    icon:'i-mic',    cost:2, contact:true},
-  game:    {label:'Gamed together',        past:'Gamed together',       icon:'i-game',   cost:3, contact:true},
-  call:    {label:'Called',                past:'Called',               icon:'i-phone',  cost:3, contact:true},
-  hang:    {label:'Hung out',              past:'Hung out',             icon:'i-cup',    cost:4, contact:true},
+  thought: {label:'Thought of them',       past:'Thought of them',      short:'Thought',    icon:'i-spark',  cost:0, contact:false, size:0, color:'#e3e9ff'},
+  they:    {label:'They reached out',      past:'They reached out',     short:'They reached out', icon:'i-in', cost:0, contact:true, size:2, color:'#9be37a'},
+  react:   {label:'Sent a meme or a heart',past:'Sent a meme or heart', short:'Socials',    icon:'i-heart',  cost:1, contact:true,  size:1, color:'#ff7ab8'},
+  text:    {label:'Texted',                past:'Texted',               short:'Text',       icon:'i-bubble', cost:2, contact:true,  size:2, color:'#4fd6ff'},
+  voice:   {label:'Voice note',            past:'Sent a voice note',    short:'Voice note', icon:'i-mic',    cost:2, contact:true,  size:2, color:'#3fe0b5'},
+  game:    {label:'Gamed together',        past:'Gamed together',       short:'Gaming',     icon:'i-game',   cost:3, contact:true,  size:3, color:'#ff8a4c'},
+  call:    {label:'Called',                past:'Called',               short:'Call',       icon:'i-phone',  cost:3, contact:true,  size:3, color:'#a78bff'},
+  hang:    {label:'Caught up in person',   past:'Caught up in person',  short:'Catch-up',   icon:'i-cup',    cost:4, contact:true,  size:4, color:'#ffb238'},
 };
 const KIND_ORDER = ['thought','react','text','voice','game','call','hang','they'];
 const KIND_CHANNEL = {react:['memes','social'], text:['text'], voice:['voice'], game:['games'], call:['calls','video'], hang:['irl']};
@@ -876,9 +881,19 @@ const Sound = (() => {
     close(){ noise({dur: .2, vol: .022, f1: 2200, f2: 420}); tone({f: 780, f2: 440, dur: .18, vol: .03, type: 'triangle', send: .4}); },
     scan(){ noise({dur: .3, vol: .025, f1: 600, f2: 3600, q: 3}); tone({f: 320, f2: 1400, dur: .24, vol: .03, type: 'triangle', send: .5}); },
     thought(){ [1046.5, 1568].forEach((f, i) => tone({f, t0: i * .09, dur: 1.2, vol: .045, attack: .01, send: .85})); },
-    contact(){
-      [523.25, 659.25, 783.99, 1174.66].forEach((f, i) => tone({f, type: i % 2 ? 'sine' : 'triangle', t0: i * .075, dur: 1.7, vol: .05, attack: .012, send: .9, pan: (i - 1.5) * .25}));
-      tone({f: 130.81, dur: 1.4, vol: .05, attack: .03, send: .3});
+    // contact cues grow with the moment: socials < text < call < catching up
+    social(){ tone({f: 1568, f2: 2093, dur: .16, vol: .03, send: .45}); tone({f: 2349.3, t0: .07, dur: .5, vol: .022, send: .7}); },
+    text(){ [783.99, 987.77, 1174.66].forEach((f, i) => tone({f, t0: i * .07, dur: 1.1, vol: .042, attack: .01, send: .8, pan: (i - 1) * .3})); },
+    call(){
+      [523.25, 659.25, 783.99, 1174.66].forEach((f, i) => tone({f, type: i % 2 ? 'sine' : 'triangle', t0: i * .075, dur: 1.9, vol: .05, attack: .012, send: .9, pan: (i - 1.5) * .25}));
+      tone({f: 130.81, dur: 1.6, vol: .055, attack: .03, send: .3});
+    },
+    catchup(){
+      noise({dur: 1.1, vol: .028, f1: 180, f2: 2400, q: .9, send: .8});
+      tone({f: 65.41, dur: 3.2, vol: .07, attack: .25, send: .2});
+      [130.81, 196, 261.63, 329.63, 392, 493.88, 587.33, 783.99, 1046.5].forEach((f, i) =>
+        tone({f, type: i % 3 ? 'sine' : 'triangle', t0: .18 + i * .06, dur: 3.4 - i * .12, vol: .04, attack: .02, send: .95, pan: ((i % 5) - 2) * .2}));
+      [2093, 2637, 3136].forEach((f, i) => tone({f, t0: .9 + i * .11, dur: 1.4, vol: .016, send: 1}));
     },
     add(){ noise({dur: .6, vol: .03, f1: 200, f2: 3000, q: 1.1, send: .6}); tone({f: 220, f2: 880, dur: .5, vol: .035, type: 'triangle', send: .5}); tone({f: 1318.5, t0: .45, dur: 1, vol: .04, send: .9}); },
     toggle(){ tone({f: 880, dur: .06, vol: .035}); tone({f: 1320, dur: .08, vol: .03, t0: .06}); },
@@ -893,8 +908,59 @@ const Sound = (() => {
     fx.gain.value = state.hardDay ? .5 : 1;
     try { CUES[name](); } catch (e) {}
   }
-  function startAmb(){
+  // Your own ambient tracks, if they sit next to the app. Missing files fall back to the synth drone.
+  const TRACKS = {main: 'audio/ambient.mp3', calm: 'audio/hard-day.mp3'};
+  const trackCache = {};
+  function loadTrack(url){
+    if (!(url in trackCache)) trackCache[url] = fetch(url)
+      .then(r => r.ok && /^audio\//.test(r.headers.get('content-type') || '') ? r.blob() : null)
+      .then(b => b && b.size ? URL.createObjectURL(b) : null)
+      .catch(() => null);
+    return trackCache[url];
+  }
+  // Two players crossfading over the seam, so any track loops without a gap or a jump.
+  function looper(src, out){
+    const XF = 6, els = [], gs = [];
+    for (let i = 0; i < 2; i++){
+      const el = new Audio(); el.src = src; el.preload = 'auto';
+      const g = ac.createGain(); g.gain.value = 0;
+      ac.createMediaElementSource(el).connect(g); g.connect(out);
+      els.push(el); gs.push(g);
+    }
+    let cur = 0, dead = false, paused = false;
+    function fade(i, to, sec){ const t = ac.currentTime, g = gs[i].gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); }
+    function begin(i){ els[i].currentTime = 0; els[i].play().catch(() => {}); fade(i, 1, XF); }
+    const timer = setInterval(() => {
+      const el = els[cur];
+      if (dead || paused || !el.duration || el.currentTime < el.duration - XF - .4) return;
+      const old = cur; cur = 1 - cur; begin(cur); fade(old, 0, XF);
+      setTimeout(() => { if (cur !== old && !dead) els[old].pause(); }, (XF + .6) * 1000);
+    }, 400);
+    begin(cur);
+    return {
+      pause(){ paused = true; els.forEach(e => e.pause()); },
+      resume(){ if (!paused || dead) return; paused = false; els[cur].play().catch(() => {}); },
+      stop(){ dead = true; clearInterval(timer); els.forEach(e => { e.pause(); e.removeAttribute('src'); e.load(); }); },
+    };
+  }
+  let ambToken = 0;
+  async function startAmb(){
     if (amb || !ac) return;
+    const want = state.hardDay ? 'calm' : 'main', token = ++ambToken;
+    amb = {want, pending: true};
+    let src = await loadTrack(TRACKS[want]);
+    if (!src && want === 'calm') src = await loadTrack(TRACKS.main);
+    if (token !== ambToken || !amb || !amb.pending) return;
+    if (src){
+      const t = ac.currentTime, g = ac.createGain();
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(state.hardDay ? .24 : .32, t + 4);
+      g.connect(master);
+      amb = {want, src, g, nodes: [], loop: looper(src, g)};
+      return;
+    }
+    synthAmb(want);
+  }
+  function synthAmb(want){
     const t = ac.currentTime;
     const g = ac.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.06, t + 4);
     const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300; lp.Q.value = .8;
@@ -912,14 +978,31 @@ const Sound = (() => {
     lp.connect(g); g.connect(master);
     const s = ac.createGain(); s.gain.value = .6; g.connect(s); s.connect(wet);
     lfo.start(); sh.start(); trem.start();
-    amb = {g, nodes: [...nodes, lfo, sh, trem]};
+    amb = {want, g, nodes: [...nodes, lfo, sh, trem]};
   }
   function stopAmb(){
     if (!amb || !ac) return;
-    const a = amb, t = ac.currentTime; amb = null;
+    const a = amb, t = ac.currentTime; amb = null; ambToken++;
+    if (a.pending) return;
     a.g.gain.cancelScheduledValues(t); a.g.gain.setValueAtTime(Math.max(a.g.gain.value, .0001), t);
     a.g.gain.exponentialRampToValueAtTime(.0001, t + 1.8);
     a.nodes.forEach(n => { try { n.stop(t + 1.9); } catch (e) {} });
+    if (a.loop) setTimeout(() => a.loop.stop(), 2000);
+  }
+  // Hard day mode switches to the calm track if you added one, otherwise it just gets quieter.
+  async function moodChanged(){
+    if (!amb || amb.pending || !on || !ambOn) return;
+    const want = state.hardDay ? 'calm' : 'main';
+    if (amb.want === want) return;
+    const main = await loadTrack(TRACKS.main), calm = await loadTrack(TRACKS.calm);
+    const src = want === 'calm' ? calm || main : main;
+    if (!amb || amb.pending || amb.want === want) return;
+    if (src === (amb.src || null)){
+      amb.want = want;
+      if (amb.loop) amb.g.gain.setTargetAtTime(state.hardDay ? .24 : .32, ac.currentTime, .8);
+      return;
+    }
+    stopAmb(); startAmb();
   }
   function unlock(){
     if (!on) return;
@@ -951,9 +1034,11 @@ const Sound = (() => {
   }
   document.addEventListener('visibilitychange', () => {
     if (!ac) return;
-    if (document.hidden) ac.suspend(); else if (on) ac.resume();
+    const loop = amb && amb.loop;
+    if (document.hidden){ if (loop) loop.pause(); ac.suspend(); }
+    else if (on){ ac.resume(); if (loop) loop.resume(); }
   });
-  return {play, unlock, reflect, toggleSound, toggleAmbience};
+  return {play, unlock, reflect, toggleSound, toggleAmbience, moodChanged};
 })();
 const unlockAudio = () => Sound.unlock();
 document.addEventListener('pointerdown', unlockAudio, true);
@@ -963,11 +1048,10 @@ document.addEventListener('keydown', unlockAudio, true);
 const Orbit = (() => {
   const TAU = Math.PI * 2;
   const cv = $('#space'), ctx = cv.getContext('2d'), tip = $('#orbit-tip'), breathEl = $('#breath'), overlay = $('#orbit-overlay');
-  const bgc = document.createElement('canvas'), bgx = bgc.getContext('2d');
   const C = {void: '#04060b', ink: '#e9eef7', ink2: 'rgba(205,215,232,.78)', ink3: 'rgba(150,165,190,.6)', tick: 'rgba(150,170,205,.3)', cyan: '#4fd6ff', amber: '#ffb238', calm: '#3fe0b5', knock: 'rgba(4,6,11,.78)'};
   const ZC = {close: '#ffb238', orbit: '#3fe0b5', drift: '#4fb6ff', far: '#a78bff'};
   const PRI = {far: 1, drift: 2, orbit: 3, close: 4};
-  const base = h => `hsl(${h},82%,62%)`, shade = h => `hsl(${h},70%,42%)`, rim = h => `hsl(${h},60%,24%)`, hsla = (h, a) => `hsla(${h},82%,62%,${a})`;
+  const base = h => `hsl(${h},82%,62%)`, shade = h => `hsl(${h},70%,42%)`, rim = h => `hsl(${h},60%,24%)`;
   const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
   const hitRect = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   let W = 0, H = 0, dpr = 1, F = {body: 'sans-serif', hud: 'sans-serif', mono: 'monospace'};
@@ -987,22 +1071,24 @@ const Orbit = (() => {
     let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
     stars = Array.from({length: 260}, () => ({x: rnd(), y: rnd(), r: rnd() < .12 ? 1.3 : .8, a: .18 + rnd() * .5}));
   }
+  // Paint the whole sky every frame. A cached offscreen copy is not safe here:
+  // mobile browsers can silently blank detached canvases, and then old frames smear.
   function paintBg(){
-    bgc.width = cv.width; bgc.height = cv.height;
-    bgx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    bgx.fillStyle = C.void; bgx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = C.void; ctx.fillRect(0, 0, W, H);
     const n = Math.round(clamp(W * H / 7000, 60, 260));
+    ctx.fillStyle = '#dfe8ff';
     for (let i = 0; i < n; i++){
-      const st = stars[i]; bgx.globalAlpha = st.a; bgx.fillStyle = '#dfe8ff';
-      bgx.fillRect(Math.round(st.x * W), Math.round(st.y * H), st.r, st.r);
+      const st = stars[i]; ctx.globalAlpha = st.a;
+      ctx.fillRect(Math.round(st.x * W), Math.round(st.y * H), st.r, st.r);
     }
-    bgx.globalAlpha = 1;
+    ctx.globalAlpha = 1;
   }
   function resize(){
     dpr = Math.min(2, window.devicePixelRatio || 1);
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-    paintBg(); draw();
+    draw();
   }
   function setFrame(r){
     const minR = Math.min(W, H) * .24;
@@ -1113,9 +1199,8 @@ const Orbit = (() => {
   function draw(){
     if (!W) return;
     const still = reduceMotion.matches;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(bgc, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintBg();
     const {cx, cy, R} = cur;
     if (!R) return;
     const s = clamp(R / 300, .8, 1.2), b4 = bounds();
@@ -1207,9 +1292,9 @@ const Orbit = (() => {
       const k = 1 - p.life / p.max;
       if (k < 0) continue;
       ctx.globalAlpha = Math.max(0, 1 - k);
-      ctx.strokeStyle = p.gold ? C.amber : hsla(p.hue, 1); ctx.lineWidth = 2;
+      ctx.strokeStyle = p.color; ctx.lineWidth = p.width;
       const b = bodies.get(p.id), x = b ? b.x : p.x, y = b ? b.y : p.y;
-      ctx.beginPath(); ctx.arc(x, y, p.r0 + k * 52 * s, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, p.r0 + k * p.reach * s, 0, TAU); ctx.stroke();
     }
     ctx.globalAlpha = 1;
     placeTip();
@@ -1283,11 +1368,15 @@ const Orbit = (() => {
   cv.addEventListener('pointerleave', () => { over = false; setHover(null); schedule(); });
   cv.addEventListener('click', e => { const b = hit(e.clientX, e.clientY); if (b) openDrawer(b.id); });
 
-  function burst(id, big){
+  // size 0 (a thought) to 4 (catching up in person): more, wider, longer rings
+  function burst(id, size = 2, color = C.cyan){
     const b = bodies.get(id);
     if (!b || reduceMotion.matches) return;
-    pings.push({id, x: b.x, y: b.y, hue: b.hue, r0: b.pr, life: 1.1, max: 1.1, gold: false});
-    if (big) pings.push({id, x: b.x, y: b.y, hue: b.hue, r0: b.pr, life: 1.5, max: 1.1, gold: true});
+    const reach = [36, 30, 52, 70, 104][size], rings = [1, 1, 1, 2, 3][size], width = [1.6, 1.6, 2, 2.4, 3][size];
+    for (let i = 0; i < rings; i++){
+      const max = 1.1 + size * .15;
+      pings.push({id, x: b.x, y: b.y, r0: b.pr, life: max + i * .35, max, reach, width, color: i ? C.amber : color});
+    }
     kick();
   }
   function setPulse(id){ if (pulse === id) return; pulse = id; kick(); draw(); }
@@ -1295,6 +1384,7 @@ const Orbit = (() => {
 
   seedStars();
   addEventListener('resize', () => { resize(); layoutSpace(); });
+  cv.addEventListener('contextrestored', () => draw());
   reduceMotion.addEventListener('change', () => { setDim(dim); kick(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(readFonts);
@@ -1438,7 +1528,7 @@ function nextPick(){
 
 function kindChip(f, k, extra = ''){
   const K = KINDS[k], like = likesKind(f, k);
-  return `<button class="chip kind${k === 'thought' ? ' thought' : ''}${like ? ' liked' : ''}${extra}" style="--h:${f.hue}" data-act="log" data-id="${f.id}" data-kind="${k}" data-fk="log:${f.id}:${k}"${like ? ` title="${esc(first(f))} likes this"` : ''}>${ico(K.icon)} ${esc(K.label)}</button>`;
+  return `<button class="chip kind${k === 'thought' ? ' thought' : ''}${like ? ' liked' : ''}${extra}" style="--k:${K.color}" data-act="log" data-id="${f.id}" data-kind="${k}" data-fk="log:${f.id}:${k}"${like ? ` title="${esc(first(f))} likes this"` : ''}>${ico(K.icon)} ${esc(K.label)}</button>`;
 }
 function avatar(f, size = 46){
   return `<span class="avatar${f.safe ? ' safe' : ''}${f.resting ? ' resting' : ''}" style="--h:${f.hue};--sz:${size}px" aria-hidden="true">${esc(f.glyph || initials(f))}</span>`;
@@ -1493,26 +1583,59 @@ function renderToday(){
   });
 }
 
-const JAR_SLOTS = (() => {
-  const s = []; let row = 0;
-  for (let y = 127; y >= 58; y -= 9, row++){
-    for (let x = 28 + (row % 2 ? 4.5 : 0); x <= 93; x += 9) s.push([x, y]);
+// Spark radius by moment size: a thought is a speck, catching up in person is a big gem.
+const SPARK_R = [2.3, 3.1, 4.3, 6.3, 10];
+// Drop each spark straight down into the jar and let it rest on whatever it lands on.
+function packJar(sparks){
+  const L = 20.6, Rt = 99.4, FLOOR = 133.6, TOP = 55, CR = 12.6, CL = L + CR, CRx = Rt - CR, CY = FLOOR - CR, GAP = .5;
+  const placed = [];
+  for (const sp of sparks){
+    const r = sp.r;
+    let best = null;
+    for (let x = L + r; x <= Rt - r + .001; x += 1.25){
+      let y = FLOOR - r;
+      const corner = x < CL ? CL : x > CRx ? CRx : null;
+      if (corner !== null){ const room = CR - r, dx = x - corner; if (Math.abs(dx) > room) continue; y = Math.min(y, CY + Math.sqrt(room * room - dx * dx)); }
+      for (const c of placed){
+        const need = r + c.r + GAP, dx = x - c.x;
+        if (Math.abs(dx) < need) y = Math.min(y, c.y - Math.sqrt(need * need - dx * dx));
+      }
+      if (y - r < TOP) continue;
+      const jitter = ((hashStr(sp.id + x.toFixed(2)) % 1000) / 1000) * .6;
+      if (!best || y + jitter > best.score){ best = {x, y, score: y + jitter}; }
+    }
+    if (best) placed.push({...sp, x: best.x, y: best.y});
   }
-  return s;
-})();
+  return placed;
+}
+let jarKey = '';
 function renderWins(){
   const now = Date.now(), wk = now - 7 * DAY;
   let total = 0, week = 0; const people = new Set(), sparks = [];
   for (const f of state.friends.values()) for (const l of f.log){
-    total++; sparks.push({at: l.at, hue: f.hue});
+    const K = KINDS[l.kind];
+    total++; sparks.push({id: l.id, at: l.at, kind: l.kind, r: SPARK_R[K.size], color: K.color, who: first(f)});
     if (l.at >= wk){ week++; people.add(f.id); }
   }
-  sparks.sort((a, b) => a.at - b.at);
-  const shown = sparks.slice(-JAR_SLOTS.length);
-  let jar = `<rect class="lid" x="36" y="8" width="48" height="11" rx="2"/>
-    <path class="glass" d="M40 19v7c0 4-22 8-22 26v70c0 8 6 14 14 14h56c8 0 14-6 14-14V52c0-18-22-22-22-26v-7z"/>`;
-  shown.forEach((s, i) => { const [x, y] = JAR_SLOTS[i]; jar += `<circle class="jar-star" style="--h:${s.hue}" cx="${x}" cy="${y}" r="3.6"/>`; });
-  $('#jar').innerHTML = jar;
+  // keep the newest sparks that fit, then pour them in oldest first
+  sparks.sort((a, b) => b.at - a.at);
+  const shown = []; let area = 0;
+  for (const sp of sparks){ area += Math.PI * sp.r * sp.r; if (area > 3900) break; shown.push(sp); }
+  shown.reverse();
+  const key = shown.map(sp => sp.id).join(',');
+  if (key !== jarKey){
+    jarKey = key;
+    let jar = `<rect class="lid" x="36" y="8" width="48" height="11" rx="2"/>
+      <path class="glass" d="M40 19v7c0 4-22 8-22 26v70c0 8 6 14 14 14h56c8 0 14-6 14-14V52c0-18-22-22-22-26v-7z"/>`;
+    for (const sp of packJar(shown)){
+      jar += `<circle class="jar-spark" fill="${sp.color}" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${sp.r}"><title>${esc(KINDS[sp.kind].past)} · ${esc(sp.who)}</title></circle>`;
+      if (sp.r >= 6) jar += `<circle fill="rgba(255,255,255,.8)" cx="${(sp.x - sp.r * .38).toFixed(1)}" cy="${(sp.y - sp.r * .38).toFixed(1)}" r="${(sp.r * .2).toFixed(1)}"/>`;
+    }
+    $('#jar').innerHTML = jar;
+    const kinds = [...new Set(shown.map(sp => sp.kind))];
+    const keyKinds = (kinds.length ? kinds : ['hang', 'call', 'text', 'react']).sort((a, b) => KINDS[b].size - KINDS[a].size || KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b));
+    $('#jar-key').innerHTML = keyKinds.map(k => { const d = Math.round(SPARK_R[KINDS[k].size] * 1.5); return `<li><i style="--k:${KINDS[k].color};width:${d}px;height:${d}px"></i>${esc(KINDS[k].short)}</li>`; }).join('');
+  }
   $('#jar').setAttribute('aria-label', `Spark jar holding ${total} ${total === 1 ? 'spark' : 'sparks'}`);
   $('#spark-n').innerHTML = `${total}<small>${total === 1 ? 'spark' : 'sparks'}</small>`;
   $('#spark-week').textContent = isLoading() ? '' : week
@@ -1839,8 +1962,8 @@ function logKind(id, kind){
   if (state.openId === id) state.noteFor = entry.id;
   state.expanded.delete(id);
   commit(f);
-  Orbit.burst(id, KINDS[kind].contact);
-  Sound.play(kind === 'thought' ? 'thought' : 'contact');
+  Orbit.burst(id, KINDS[kind].size, KINDS[kind].color);
+  Sound.play(['thought', 'social', 'text', 'call', 'catchup'][KINDS[kind].size]);
   const row = document.querySelector(`.prow[data-id="${CSS.escape(id)}"]`);
   if (row){ row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
   const line = pickOne(kind === 'thought' ? THOUGHT_LINES : CONTACT_LINES).replace('{n}', first(f));
@@ -1955,6 +2078,7 @@ function setHardDay(on){
   state.hardDay = on; prefs.hardDay = on; savePrefs();
   applyHardDay(); renderAll();
   Sound.play(on ? 'harbor' : 'toggle');
+  Sound.moodChanged();
 }
 
 async function copyText(text){
