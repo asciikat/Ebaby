@@ -1,6 +1,6 @@
 // Friend Orbit offline support. Bump VERSION whenever any app file changes
 // so installed copies pick up the new version on their next launch.
-const VERSION = 'friend-orbit-v1';
+const VERSION = 'friend-orbit-v6';
 const FONTS = 'friend-orbit-fonts';
 const SHELL = [
   './',
@@ -30,10 +30,15 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com'){
-    event.respondWith(cacheFirst(req));
+    event.respondWith(cacheFirst(req, FONTS));
     return;
   }
   if (url.origin !== self.location.origin) return;
+  // Ambient tracks are big: download once, then play from the saved copy.
+  if (url.pathname.includes('/audio/')){
+    event.respondWith(cacheFirst(req, VERSION));
+    return;
+  }
   event.respondWith(staleWhileRevalidate(event));
 });
 
@@ -50,8 +55,8 @@ async function staleWhileRevalidate(event){
   return (await network) || new Response('Friend Orbit is offline and has not been saved on this device yet.', {status: 503, headers: {'Content-Type': 'text/plain; charset=utf-8'}});
 }
 
-async function cacheFirst(req){
-  const cache = await caches.open(FONTS);
+async function cacheFirst(req, name){
+  const cache = await caches.open(name);
   const hit = await cache.match(req);
   if (hit) return hit;
   try {
